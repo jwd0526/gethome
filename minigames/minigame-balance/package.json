@@ -1,0 +1,19 @@
+{
+  "name": "balance-poc",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "node tests/logic-tests.js",
+    "ui": "node tests/browser-tests.js",
+    "build": "node build.js",
+    "serve": "python3 -m http.server 8140"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
+}

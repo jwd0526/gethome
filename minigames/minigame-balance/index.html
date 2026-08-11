@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Balance — POC</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main id="app">
+      <h1>Balance</h1>
+      <p class="sub">
+        Hold <kbd>←</kbd>/<kbd>A</kbd> or <kbd>→</kbd>/<kbd>D</kbd> to correct.
+        Both or neither cancels. Survive as long as you can.
+      </p>
+
+      <!-- ===================== PLAYFIELD ===================== -->
+      <section id="playfield">
+        <div class="bar-wrap">
+          <div id="bar" class="bar">
+            <div class="edge left" title="fall threshold"></div>
+            <div class="centre"></div>
+            <div class="edge right" title="fall threshold"></div>
+            <div id="marker" class="marker"></div>
+          </div>
+          <div class="bar-labels"><span>-1.0</span><span>0</span><span>+1.0</span></div>
+        </div>
+
+        <div class="hud">
+          <div class="hud-item"><span class="k">Time</span><span id="timer" class="v big">0.0s</span></div>
+          <div class="hud-item"><span class="k">Gravity</span><span id="gravity" class="v">—</span></div>
+          <div class="hud-item"><span class="k">Lean</span><span id="lean" class="v">—</span></div>
+          <div class="hud-item"><span class="k">Velocity</span><span id="velocity" class="v">—</span></div>
+          <div class="hud-item"><span class="k">Input</span><span id="input" class="v">—</span></div>
+          <div class="hud-item"><span class="k">Best</span><span id="best" class="v">—</span></div>
+        </div>
+
+        <div id="status" class="status">Press Start (or Space) to begin.</div>
+
+        <div class="controls">
+          <button id="start" class="primary">Start</button>
+          <button id="touch-left" class="hold">◀ Left</button>
+          <button id="touch-right" class="hold">Right ▶</button>
+        </div>
+      </section>
+
+      <!-- ===================== TUNING ===================== -->
+      <section id="tuning">
+        <h2>Parameters</h2>
+        <p class="sub">
+          Applied when a run starts. Tweak, play, repeat — the run log below records the
+          settings each result came from.
+        </p>
+
+        <div class="presets">
+          <span class="k">Presets</span>
+          <button class="preset" data-preset="spec">Spec defaults</button>
+          <button class="preset" data-preset="gentle">Gentle</button>
+          <button class="preset" data-preset="moderate">Moderate</button>
+          <button class="preset" data-preset="steep">Steep</button>
+          <button class="preset" data-preset="brutal">Brutal</button>
+        </div>
+
+        <div class="params" id="params"></div>
+
+        <label class="drunk">
+          <input type="checkbox" id="is-drunk" />
+          Start this run drunk (uses the drunk starting gravity)
+        </label>
+      </section>
+
+      <!-- ===================== RUN LOG ===================== -->
+      <section id="log-section">
+        <h2>Run log</h2>
+        <table id="runs">
+          <thead>
+            <tr>
+              <th>#</th><th>Time</th><th>Drunk</th><th>ramp</th><th>correction</th>
+              <th>damping</th><th>gravity start</th><th>start lean</th>
+            </tr>
+          </thead>
+          <tbody id="runs-rows"></tbody>
+        </table>
+        <p id="runs-empty" class="sub">No runs yet.</p>
+        <button id="clear-runs" class="ghost">Clear log</button>
+      </section>
+    </main>
+
+    <script type="module" src="src/ui.js"></script>
+  </body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "trade-war-poc",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "node tests/logic-tests.js",
+    "ui": "node tests/browser-tests.js",
+    "serve": "python3 -m http.server 8137",
+    "build": "node build.js",
+    "test:dist": "node build.js && node tests/dist-smoke.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
+}
