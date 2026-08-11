@@ -673,6 +673,118 @@ try {
   });
 
   // -------------------------------------------------------------------------
+  // CHECK 12 — the table: seats, zones, piles, and cards in flight
+  // -------------------------------------------------------------------------
+
+  await check('CHECK 12 (UI) — the table seats everyone, splits the zones and tracks the piles', async () => {
+    await setupGame(page, { playerCount: 6, seed: 4242 });
+    await reveal(page);
+
+    const readTable = () => page.evaluate(() => {
+      const seatOf = (el) => el.closest('.seat-group')?.classList.contains('north') ? 'north'
+        : el.closest('.seat-group')?.classList.contains('west') ? 'west'
+        : el.closest('.seat-group')?.classList.contains('east') ? 'east' : null;
+      const zoneCards = (zone) =>
+        [...document.querySelectorAll(`#own-hand .zone-${zone} .card`)].map((el) => el.dataset.cardId);
+      return {
+        seats: [...document.querySelectorAll('#other-hands .opponent')].map((el) => ({
+          playerId: el.dataset.playerId,
+          group: seatOf(el),
+          positions: [...el.querySelectorAll('.slot')].map((s) => Number(s.dataset.position)),
+          lockedPositions: [...el.querySelectorAll('.slot[data-locked="true"]')]
+            .map((s) => Number(s.dataset.position)),
+        })),
+        live: zoneCards('live'),
+        locked: zoneCards('locked'),
+        allOwn: [...document.querySelectorAll('#own-hand .card')].map((el) => el.dataset.cardId),
+        deckLabel: document.getElementById('deck-count').textContent,
+        discardLabel: document.getElementById('discard-count').textContent,
+        ghosts: document.querySelectorAll('#fly-layer .fly').length,
+      };
+    });
+
+    let table = await readTable();
+    let st = await stateOf(page);
+    const viewerId = st.submissionOrder[st.submissionIndex];
+
+    // Every opponent has a seat, and it is somewhere on the felt.
+    eq(table.seats.length, st.playerCount - 1, 'every opponent has a seat');
+    eq(new Set(table.seats.map((s) => s.playerId)).size, table.seats.length, 'no player seated twice');
+    ok(!table.seats.some((s) => s.playerId === viewerId), 'the viewer is not seated as an opponent');
+    ok(table.seats.every((s) => s.group !== null), 'every seat landed in a seat group');
+    note(`seating: ${table.seats.map((s) => `${s.playerId}:${s.group}`).join(' ')}`);
+    ok(new Set(table.seats.map((s) => s.group)).size >= 2, 'seats are spread around the felt, not stacked in one group');
+
+    // Piles read from the same numbers the rules layer holds.
+    eq(table.deckLabel, String(st.deck.length), 'deck count on the felt matches the deck');
+    eq(table.discardLabel, String(st.discard.length), 'discard count on the felt matches the discard');
+
+    // Zones partition the hand: nothing lost, nothing duplicated.
+    const handIds = st.players.find((p) => p.id === viewerId).hand.map((c) => c.id);
+    eq(table.live.length + table.locked.length, handIds.length, 'the two zones account for the whole hand');
+    eq(new Set(table.allOwn).size, handIds.length, '#own-hand still addresses every card');
+    eq([...table.live, ...table.locked].sort().join(' '), [...handIds].sort().join(' '),
+      'the zones hold exactly the cards in hand');
+    eq(table.locked.length, 0, 'nothing is banked on the opening turn');
+
+    // Play into round 2, so the player we land on has already banked something and some
+    // opponents show locked slots.
+    let acted = 0;
+    for (let i = 0; i < 40; i++) {
+      const s = await screenOf(page);
+      if (s === 'over') break;
+      if (s === 'turn' && (await stateOf(page)).currentRound >= 2) break;
+      if (s === 'turn') {
+        const i = acted++;
+        const t = await readTurn(page);
+        // Replace once to move the piles, otherwise lock.
+        if (i === 0) await clickReplace(page, t.ownHand.find((c) => !c.locked).cardId);
+        else await clickLock(page, t.ownHand.find((c) => !c.locked).cardId);
+        // A resolution should put at least one card in the air.
+        ok((await readTable()).ghosts > 0, `action ${i + 1} animated a card across the table`);
+      } else if (s === 'result') await page.click('#result-continue');
+      else if (s === 'pass') {
+        // Nothing may survive the handoff — a ghost mid-flight least of all.
+        eq(await page.$$eval('#fly-layer .fly', (els) => els.length), 0,
+          'the fly layer is torn down at the handoff');
+        await reveal(page);
+      } else if (s === 'summary') await page.click('#continue-round');
+    }
+
+    await advanceToTurn(page);
+    table = await readTable();
+    st = await stateOf(page);
+    const viewer2 = st.submissionOrder[st.submissionIndex];
+    const hand2 = st.players.find((p) => p.id === viewer2).hand;
+
+    ok(table.locked.length > 0, `${table.locked.length} card(s) banked in the locked zone by now`);
+    eq(table.live.join(' '), hand2.filter((c) => !c.locked).map((c) => c.id).join(' '),
+      'the live zone holds exactly the unlocked cards');
+    eq(table.locked.join(' '), hand2.filter((c) => c.locked).map((c) => c.id).join(' '),
+      'the locked zone holds exactly the locked cards');
+
+    // D9: opponent slots stay in position order even once some of them are locked, because
+    // Force Trade picks blind *by position*.
+    const withLocks = table.seats.filter((s) => s.lockedPositions.length > 0);
+    ok(withLocks.length > 0, `${withLocks.length} opponent seat(s) now show locked slots`);
+    for (const seat of table.seats) {
+      eq(seat.positions.join(','), seat.positions.map((_, i) => i + 1).join(','),
+        `${seat.playerId}'s slots are still in position order`);
+      const stateLocked = st.players.find((p) => p.id === seat.playerId).hand
+        .map((c, i) => (c.locked ? i + 1 : null)).filter(Boolean);
+      eq(seat.lockedPositions.join(','), stateLocked.join(','),
+        `${seat.playerId}'s locked slots are the ones the state says are locked`);
+    }
+
+    // The piles moved, and still agree with the state.
+    eq(table.deckLabel, String(st.deck.length), 'deck count still matches after play');
+    eq(table.discardLabel, String(st.discard.length), 'discard count still matches after play');
+    ok(st.discard.length > 0, `the replace put ${st.discard.length} card(s) on the discard`);
+    note(`deck ${table.deckLabel}, discard ${table.discardLabel}, ` +
+      `zones ${table.live.length} live / ${table.locked.length} locked`);
+  });
+
+  // -------------------------------------------------------------------------
   // CHECK 9 — tiebreak, played out for real in the UI
   // -------------------------------------------------------------------------
 
