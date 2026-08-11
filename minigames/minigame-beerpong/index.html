@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Beer Pong — POC</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main id="app">
+      <!-- ===================== SETUP ===================== -->
+      <section id="screen-setup" class="screen">
+        <h1>Beer Pong</h1>
+        <p class="sub">
+          Two meters per throw: aim across the table, then power for depth.
+          <kbd>Space</kbd> locks each one.
+        </p>
+
+        <div class="field">
+          <span class="label">Players</span>
+          <button class="choice" data-count="2">2 — 1v1</button>
+          <button class="choice" data-count="3">3 — 1v2</button>
+          <button class="choice" data-count="4">4 — 2v2</button>
+        </div>
+
+        <div class="field">
+          <span class="label">Seed (optional)</span>
+          <input id="seed-input" type="text" placeholder="blank = random" />
+        </div>
+
+        <table id="setup-players">
+          <thead>
+            <tr>
+              <th>#</th><th>Name</th>
+              <th>Standing points</th>
+              <th>Drunkenness (0–1)</th>
+            </tr>
+          </thead>
+          <tbody id="setup-rows"></tbody>
+        </table>
+        <p class="sub">
+          Sides are seeded from standings (Section 3): 1st plays solo in a 1v2, and pairs
+          as 1st + 4th vs 2nd + 3rd in a 2v2. Leave every standing at 0 for a random draw,
+          as in the first game of a session.
+        </p>
+
+        <button id="start-game" class="primary">Start Match</button>
+      </section>
+
+      <!-- ===================== MATCH ===================== -->
+      <section id="screen-match" class="screen hidden">
+        <div class="bar">
+          <span id="turn-indicator"></span>
+          <span id="format-indicator" class="sub"></span>
+        </div>
+
+        <p id="sudden-death" class="notice hidden"></p>
+        <p id="rerack-notice" class="notice rerack hidden"></p>
+
+        <!-- The table. Both racks are drawn; the one being thrown at is highlighted. -->
+        <div id="table-wrap">
+          <svg id="table" viewBox="0 0 100 132" preserveAspectRatio="xMidYMid meet"
+               role="img" aria-label="Beer pong table with both racks">
+            <rect class="felt" x="1" y="1" width="98" height="130" rx="4" />
+            <line class="halfway" x1="1" y1="66" x2="99" y2="66" />
+
+            <!-- Far side: the rack currently being thrown at. -->
+            <g id="rack-far" class="rack far"></g>
+            <!-- Near side: the throwing team's own rack, shown for context. -->
+            <g id="rack-near" class="rack near"></g>
+
+            <circle id="ball" class="ball hidden" r="2.1" cx="50" cy="118" />
+            <g id="landing" class="landing hidden">
+              <circle class="landing-ring" r="3" cx="50" cy="30" />
+            </g>
+          </svg>
+        </div>
+
+        <!-- ===================== METERS ===================== -->
+        <div id="meters">
+          <div class="meter-block" id="aim-block">
+            <div class="meter-head">
+              <span class="meter-name">Aim</span>
+              <span class="meter-note">left ↔ right across the table</span>
+              <span id="aim-value" class="meter-value">—</span>
+            </div>
+            <div class="track" id="aim-track">
+              <div class="track-mid"></div>
+              <div id="aim-marker" class="marker"></div>
+            </div>
+          </div>
+
+          <div class="meter-block" id="power-block">
+            <div class="meter-head">
+              <span class="meter-name">Power</span>
+              <span class="meter-note">short ↔ long, how far it carries</span>
+              <span id="power-value" class="meter-value">—</span>
+            </div>
+            <div class="track" id="power-track">
+              <div class="track-mid"></div>
+              <div id="power-marker" class="marker"></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="throw-status" class="status">Press Throw (or Space) to start the aim meter.</div>
+
+        <div class="controls">
+          <button id="lock" class="primary">Throw</button>
+          <button id="new-match" class="ghost">New match</button>
+        </div>
+
+        <!-- ===================== TUNING ===================== -->
+        <section id="tuning">
+          <h2>Parameters</h2>
+          <p class="sub">
+            Section 6 calls the tolerance and the drunkenness offset tunable — these are
+            live, and apply to the very next throw.
+          </p>
+          <div class="params" id="params"></div>
+        </section>
+
+        <h2>Throw log</h2>
+        <pre id="throw-log"></pre>
+      </section>
+
+      <!-- ===================== GAME OVER ===================== -->
+      <section id="screen-over" class="screen hidden">
+        <h2>Match over</h2>
+        <p id="result-text" class="result"></p>
+        <table id="results">
+          <thead>
+            <tr><th>Team</th><th>Players</th><th>Cups left</th><th>Result</th></tr>
+          </thead>
+          <tbody id="results-rows"></tbody>
+        </table>
+        <h3>Match log</h3>
+        <pre id="match-log"></pre>
+        <button id="play-again" class="primary">New Match</button>
+      </section>
+    </main>
+
+    <script type="module" src="src/ui.js"></script>
+  </body>
+</html>
