@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Balance — POC</title>
+    <style>
+/* Balance POC — readability first, plus the character in #scene.
+   The figure is driven entirely from tiltFraction(); the bar and marker below it are
+   kept as the precise readout the graphic is too coarse to be. */
+
+body {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  margin: 0;
+  padding: 1.5rem;
+  background: #14161a;
+  color: #e6e6e6;
+  line-height: 1.5;
+}
+
+#app { max-width: 860px; margin: 0 auto; }
+h1 { margin: 0 0 0.25rem; font-size: 1.6rem; }
+h2 { margin: 1.5rem 0 0.5rem; font-size: 1.05rem; color: #9fb4c7; }
+.sub { color: #8b98a5; font-size: 0.85rem; margin: 0.25rem 0 0.75rem; }
+kbd {
+  background: #23282f; border: 1px solid #3a424c; border-radius: 3px;
+  padding: 0 0.3rem; font-size: 0.85em;
+}
+
+button {
+  font: inherit; padding: 0.35rem 0.7rem; background: #23282f; color: #e6e6e6;
+  border: 1px solid #3a424c; border-radius: 4px; cursor: pointer;
+}
+button:hover:not(:disabled) { background: #2d343d; }
+button.primary { background: #2f6f4f; border-color: #3d8a63; }
+button.ghost { background: transparent; }
+button.preset.active { background: #3b5c86; border-color: #6f9ad1; }
+button.hold { min-width: 6rem; user-select: none; touch-action: none; }
+button.hold.pressed { background: #3b5c86; border-color: #6f9ad1; }
+
+/* ---------------- playfield: the character ---------------- */
+
+.scene-wrap {
+  margin-top: 1rem;
+  background: #1a1e24;
+  border: 1px solid #3a424c;
+  border-radius: 5px;
+  overflow: hidden;
+}
+/* Fixed height, not an aspect ratio: the figure is scaled to the height and the ground
+   runs off both sides, so the scene stays the same size at any page width. */
+.scene { display: block; width: 100%; height: 200px; }
+
+.scene .ground { stroke: #3a424c; stroke-width: 3; }
+.scene .ground-centre { stroke: #4a5361; stroke-width: 2; }
+#scene.fallen .ground { stroke: #7a3a2e; }
+
+/* The figure inherits its colour from an inline `color` set each frame — green at
+   centre through amber to red at the threshold, matching the marker. */
+.figure { color: #4caf7d; }
+.figure .limb {
+  stroke: currentColor;
+  stroke-width: 7;
+  stroke-linecap: round;
+  fill: none;
+}
+.figure .head { fill: none; stroke: currentColor; stroke-width: 7; }
+.figure .arms { transition: transform 90ms ease-out; }
+
+/* Only the fall is animated. During a run the transform is the physics, one frame at a
+   time, and a transition would show a stale pose. */
+#scene.fallen .figure { transition: transform 320ms cubic-bezier(0.3, 0.9, 0.4, 1); }
+
+/* ---------------- playfield: the bar ---------------- */
+
+.bar-wrap { margin: 1.25rem 0 0.5rem; }
+.bar {
+  position: relative;
+  height: 56px;
+  background: #1c2026;
+  border: 1px solid #3a424c;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.bar .edge {
+  position: absolute; top: 0; bottom: 0; width: 4px; background: #7a3a2e;
+}
+.bar .edge.left { left: 0; }
+.bar .edge.right { right: 0; }
+.bar .centre {
+  position: absolute; top: 0; bottom: 0; left: 50%; width: 1px;
+  background: #3a424c; transform: translateX(-0.5px);
+}
+.marker {
+  position: absolute; top: 6px; bottom: 6px; width: 10px;
+  margin-left: -5px; /* centres the marker on its computed left */
+  border-radius: 3px;
+  background: #4caf7d;
+  transition: background-color 80ms linear;
+}
+.bar-labels {
+  display: flex; justify-content: space-between;
+  color: #7b8794; font-size: 0.75rem; margin-top: 0.25rem;
+}
+.bar.fallen { border-color: #7a3a2e; }
+
+.hud {
+  display: flex; flex-wrap: wrap; gap: 0.4rem 1.5rem;
+  margin: 0.75rem 0; padding: 0.5rem 0;
+  border-top: 1px solid #262c34; border-bottom: 1px solid #262c34;
+}
+.hud-item { display: flex; flex-direction: column; min-width: 5rem; }
+.hud .k { color: #7b8794; font-size: 0.7rem; letter-spacing: 0.05em; text-transform: uppercase; }
+.hud .v { font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+.hud .v.big { font-size: 1.5rem; }
+
+.status { margin: 0.5rem 0; min-height: 1.5rem; font-size: 0.95rem; }
+.status.fallen { color: #e2725b; }
+.status.running { color: #4caf7d; }
+
+.controls { display: flex; gap: 0.5rem; margin: 0.75rem 0; flex-wrap: wrap; }
+
+/* ---------------- tuning ---------------- */
+
+.presets { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.presets .k { color: #7b8794; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+
+.params { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 0.6rem 1.25rem; }
+.param { display: flex; flex-direction: column; gap: 0.15rem; }
+.param label { font-size: 0.8rem; color: #9fb4c7; }
+.param .note { font-size: 0.7rem; color: #7b8794; }
+.param .field { display: flex; align-items: center; gap: 0.5rem; }
+.param input[type='range'] { flex: 1; min-width: 0; accent-color: #4caf7d; }
+.param input[type='number'] {
+  font: inherit; width: 5.5rem; padding: 0.2rem 0.35rem; background: #1c2026;
+  color: #e6e6e6; border: 1px solid #3a424c; border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.drunk { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.9rem; font-size: 0.9rem; }
+
+/* ---------------- run log ---------------- */
+
+table { border-collapse: collapse; width: 100%; margin: 0.5rem 0; }
+th, td {
+  border: 1px solid #3a424c; padding: 0.3rem 0.55rem;
+  text-align: left; font-size: 0.82rem; font-variant-numeric: tabular-nums;
+}
+th { color: #9fb4c7; font-weight: normal; }
+tr.best td { background: #1f3d2c; }
+
+</style>
+  </head>
+  <body>
+    <main id="app">
+      <h1>Balance</h1>
+      <p class="sub">
+        Hold <kbd>←</kbd>/<kbd>A</kbd> or <kbd>→</kbd>/<kbd>D</kbd> to correct.
+        Both or neither cancels. Survive as long as you can.
+      </p>
+
+      <!-- ===================== PLAYFIELD ===================== -->
+      <section id="playfield">
+        <!--
+          The character is a *readout*, not a second simulation: the whole figure is one
+          group rotated about its feet by tiltFraction(). Nothing here knows what lean is.
+        -->
+        <div class="scene-wrap">
+          <svg
+            id="scene" class="scene" viewBox="0 20 240 130"
+            preserveAspectRatio="xMidYMax meet"
+            role="img" aria-label="A figure balancing, leaning with your lean"
+          >
+            <!-- The ground runs well past the viewBox so it still spans the full width
+                 on a wide viewport, where "meet" scales the figure to the height. -->
+            <line id="ground" class="ground" x1="-600" y1="130" x2="840" y2="130" />
+            <line class="ground-centre" x1="120" y1="124" x2="120" y2="136" />
+
+            <g id="figure" class="figure" transform="rotate(0 120 130)">
+              <line class="limb leg" x1="120" y1="104" x2="108" y2="130" />
+              <line class="limb leg" x1="120" y1="104" x2="132" y2="130" />
+              <line class="limb torso" x1="120" y1="104" x2="120" y2="70" />
+              <g id="arms" class="arms" transform="rotate(0 120 74)">
+                <line class="limb arm" x1="120" y1="74" x2="88" y2="60" />
+                <line class="limb arm" x1="120" y1="74" x2="152" y2="60" />
+              </g>
+              <circle class="head" cx="120" cy="54" r="13" />
+            </g>
+          </svg>
+        </div>
+
+        <div class="bar-wrap">
+          <div id="bar" class="bar">
+            <div class="edge left" title="fall threshold"></div>
+            <div class="centre"></div>
+            <div class="edge right" title="fall threshold"></div>
+            <div id="marker" class="marker"></div>
+          </div>
+          <div class="bar-labels"><span>-1.0</span><span>0</span><span>+1.0</span></div>
+        </div>
+
+        <div class="hud">
+          <div class="hud-item"><span class="k">Time</span><span id="timer" class="v big">0.0s</span></div>
+          <div class="hud-item"><span class="k">Gravity</span><span id="gravity" class="v">—</span></div>
+          <div class="hud-item"><span class="k">Lean</span><span id="lean" class="v">—</span></div>
+          <div class="hud-item"><span class="k">Velocity</span><span id="velocity" class="v">—</span></div>
+          <div class="hud-item"><span class="k">Input</span><span id="input" class="v">—</span></div>
+          <div class="hud-item"><span class="k">Best</span><span id="best" class="v">—</span></div>
+        </div>
+
+        <div id="status" class="status">Press Start (or Space) to begin.</div>
+
+        <div class="controls">
+          <button id="start" class="primary">Start</button>
+          <button id="touch-left" class="hold">◀ Left</button>
+          <button id="touch-right" class="hold">Right ▶</button>
+        </div>
+      </section>
+
+      <!-- ===================== TUNING ===================== -->
+      <section id="tuning">
+        <h2>Parameters</h2>
+        <p class="sub">
+          Applied when a run starts. Tweak, play, repeat — the run log below records the
+          settings each result came from.
+        </p>
+
+        <div class="presets">
+          <span class="k">Presets</span>
+          <button class="preset" data-preset="spec">Spec defaults</button>
+          <button class="preset" data-preset="gentle">Gentle</button>
+          <button class="preset" data-preset="moderate">Moderate</button>
+          <button class="preset" data-preset="steep">Steep</button>
+          <button class="preset" data-preset="brutal">Brutal</button>
+        </div>
+
+        <div class="params" id="params"></div>
+
+        <label class="drunk">
+          <input type="checkbox" id="is-drunk" />
+          Start this run drunk (uses the drunk starting gravity)
+        </label>
+      </section>
+
+      <!-- ===================== RUN LOG ===================== -->
+      <section id="log-section">
+        <h2>Run log</h2>
+        <table id="runs">
+          <thead>
+            <tr>
+              <th>#</th><th>Time</th><th>Drunk</th><th>ramp</th><th>correction</th>
+              <th>damping</th><th>gravity start</th><th>start lean</th>
+            </tr>
+          </thead>
+          <tbody id="runs-rows"></tbody>
+        </table>
+        <p id="runs-empty" class="sub">No runs yet.</p>
+        <button id="clear-runs" class="ghost">Clear log</button>
+      </section>
+    </main>
+
+    <script type="module">
+// Balance — single-file build. Generated by build.js; edit src/ instead.
+// Balance Game — rules/physics layer.
+//
+// Pure logic. No DOM, no rAF, no key handling. State and config are plain JSON-shaped
+// data (numbers and booleans only), so the whole thing ports to Unreal's Tick() as a
+// near-direct transliteration.
+//
+// Contract:
+//   tick(state, config, dt) -> newState
+//   reduceInput(leftHeld, rightHeld) -> -1 | 0 | 1
+//
+// Section references are to minigame-balance.md.
+
+// ---------------------------------------------------------------------------
+// config
+// ---------------------------------------------------------------------------
+
+/** Section 6 defaults. `gravityRampRate` is the tuned value — see TUNING.md. */
+const DEFAULT_CONFIG = {
+  fallThreshold: 1.0,
+  correctionStrength: 2.5,
+  damping: 1.5,
+  baseGravityStart: 1.05,
+  drunkGravityStart: 1.07,
+  gravityRampRate: 1.02,
+
+  // Not in Section 2/6, but required: gravityForce is proportional to lean, so a run
+  // starting at exactly lean 0 with zero velocity has zero force acting on it and would
+  // stand still forever. Every run needs a nudge off dead centre to have a game at all.
+  initialLeanMagnitude: 0.02,
+};
+
+function createConfig(overrides = {}) {
+  return { ...DEFAULT_CONFIG, ...overrides };
+}
+
+// ---------------------------------------------------------------------------
+// state
+// ---------------------------------------------------------------------------
+
+/**
+ * Section 2 — BalanceGameState.
+ * `startingLeanSign` (+1/-1) is injectable so tests and the tuning harness can pin a run;
+ * the UI passes a random one.
+ */
+function createState(opts = {}) {
+  const config = opts.config ?? DEFAULT_CONFIG;
+  const isDrunk = Boolean(opts.isDrunk);
+  const sign = opts.startingLeanSign ?? 1;
+  const magnitude = opts.initialLean ?? config.initialLeanMagnitude;
+
+  return {
+    lean: sign * magnitude,
+    leanVelocity: 0,
+    gravityCoefficient: isDrunk ? config.drunkGravityStart : config.baseGravityStart,
+    elapsedTime: 0,
+    inputDirection: 0,
+    isFallen: false,
+    isDrunk,
+    finalScore: null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// input
+// ---------------------------------------------------------------------------
+
+/**
+ * Section 4 / Section 8 — the boundary where platform input becomes a single number.
+ * Takes booleans, never key events: nothing platform-shaped reaches the physics.
+ * Both held or neither held cancels to 0.
+ */
+function reduceInput(leftHeld, rightHeld) {
+  if (leftHeld === rightHeld) return 0;
+  return leftHeld ? -1 : 1;
+}
+
+/** Pure setter, so callers never mutate state in place. */
+function setInput(state, inputDirection) {
+  if (state.inputDirection === inputDirection) return state;
+  return { ...state, inputDirection };
+}
+
+// ---------------------------------------------------------------------------
+// physics
+// ---------------------------------------------------------------------------
+
+/**
+ * Section 3 — one physics step. Pure: returns a new state, never mutates the input.
+ *
+ * Step order matters and follows the spec exactly, including that the fall check happens
+ * *before* elapsedTime accumulates — the tick you fall on does not count toward the score.
+ */
+function tick(state, config, dt) {
+  if (state.isFallen) return state;
+
+  const next = { ...state };
+
+  // 1. Difficulty ramp. Same growth rate drunk or sober — drunk starts harder, not steeper.
+  next.gravityCoefficient = state.gravityCoefficient * Math.pow(config.gravityRampRate, dt);
+
+  // 2. Forces. gravityForce always shares lean's sign, so it pulls *away* from centre and
+  //    vanishes at centre. Overcorrection needs no special case: push past 0 and the same
+  //    term flips and starts pulling you the other way.
+  const gravityForce = next.gravityCoefficient * state.lean;
+  const inputForce = config.correctionStrength * state.inputDirection;
+  const netAcceleration = gravityForce + inputForce;
+
+  // 3. Integrate velocity, then damp.
+  next.leanVelocity = state.leanVelocity + netAcceleration * dt;
+  next.leanVelocity *= 1 - config.damping * dt;
+
+  // 4. Integrate position.
+  next.lean = state.lean + next.leanVelocity * dt;
+
+  // 5. Fall check, before the time credit.
+  if (Math.abs(next.lean) >= config.fallThreshold) {
+    next.lean = Math.sign(next.lean) * config.fallThreshold; // clamp for a clean readout
+    next.isFallen = true;
+    next.finalScore = next.elapsedTime;
+    return next;
+  }
+
+  next.elapsedTime = state.elapsedTime + dt;
+  return next;
+}
+
+/**
+ * Advance a run by `seconds` in fixed sub-steps. Fixed stepping keeps the simulation
+ * deterministic and frame-rate independent — the UI accumulates real time and calls this,
+ * so a 144 Hz monitor and a 60 Hz monitor play the identical game.
+ */
+function advance(state, config, seconds, fixedStep = FIXED_STEP) {
+  let next = state;
+  let remaining = seconds;
+  let guard = 0;
+  while (remaining > 1e-9 && !next.isFallen) {
+    if (++guard > 100000) break;
+    const step = Math.min(fixedStep, remaining);
+    next = tick(next, config, step);
+    remaining -= step;
+  }
+  return next;
+}
+
+const FIXED_STEP = 1 / 120;
+
+// ---------------------------------------------------------------------------
+// derived readouts (for rendering — still pure)
+// ---------------------------------------------------------------------------
+
+/** 0 at centre, 1 at the fall threshold. Drives the marker colour. */
+function dangerLevel(state, config) {
+  return Math.min(1, Math.abs(state.lean) / config.fallThreshold);
+}
+
+/**
+ * Signed lean as a -1..1 fraction of the fall threshold: -1 fully left, 0 centred,
+ * +1 fully right. Drives the character's tilt.
+ */
+function tiltFraction(state, config) {
+  const clamped = Math.max(-config.fallThreshold, Math.min(config.fallThreshold, state.lean));
+  return clamped / config.fallThreshold;
+}
+
+/** Marker position as a 0..1 fraction across the bar, 0.5 = centred. */
+function leanFraction(state, config) {
+  return (tiltFraction(state, config) + 1) / 2;
+}
+
+function formatTime(seconds) {
+  return `${seconds.toFixed(1)}s`;
+}
+
+// Balance — UI layer. Owns the render loop, keyboard, and the tuning form.
+// All physics lives in balance.js; nothing here does arithmetic on lean.
+
+
+const $ = (id) => document.getElementById(id);
+
+// ---------------------------------------------------------------------------
+// tunable parameters — every one of them editable at runtime
+// ---------------------------------------------------------------------------
+
+const PARAMS = [
+  { key: 'gravityRampRate', label: 'gravityRampRate', min: 1, max: 1.6, step: 0.005,
+    note: 'compounding growth per second — biggest lever on run length' },
+  { key: 'correctionStrength', label: 'correctionStrength', min: 0.2, max: 8, step: 0.1,
+    note: 'acceleration while a direction is held' },
+  { key: 'damping', label: 'damping', min: 0, max: 5, step: 0.05,
+    note: 'lower = twitchier, higher = floatier' },
+  { key: 'baseGravityStart', label: 'baseGravityStart (sober)', min: 0.2, max: 4, step: 0.01,
+    note: 'starting pull when sober' },
+  { key: 'drunkGravityStart', label: 'drunkGravityStart', min: 0.2, max: 4, step: 0.01,
+    note: 'starting pull when drunk' },
+  { key: 'initialLeanMagnitude', label: 'initialLeanMagnitude', min: 0.001, max: 0.3, step: 0.001,
+    note: 'opening nudge off centre — at exactly 0 nothing ever moves' },
+  { key: 'fallThreshold', label: 'fallThreshold', min: 0.2, max: 2, step: 0.05,
+    note: '|lean| at or past this ends the run' },
+];
+
+// Candidate starting points. These are spread across the ramp-rate range rather than
+// derived — the whole point is to play them and see which feels right.
+const PRESETS = {
+  spec:     { gravityRampRate: 1.02, correctionStrength: 2.5, damping: 1.5 },
+  gentle:   { gravityRampRate: 1.06, correctionStrength: 2.5, damping: 1.5 },
+  moderate: { gravityRampRate: 1.12, correctionStrength: 2.5, damping: 1.5 },
+  steep:    { gravityRampRate: 1.22, correctionStrength: 2.5, damping: 1.3 },
+  brutal:   { gravityRampRate: 1.35, correctionStrength: 2.8, damping: 1.1 },
+};
+
+// ---------------------------------------------------------------------------
+// ui state (deliberately not part of BalanceGameState)
+// ---------------------------------------------------------------------------
+
+let config = createConfig();
+let state = null;
+let running = false;
+let rafHandle = null;
+let lastFrame = 0;
+let accumulator = 0;
+let leftHeld = false;
+let rightHeld = false;
+let best = null;
+let runs = [];
+
+// Guards the spiral of death after a tab has been backgrounded: never simulate more than
+// a quarter second of catch-up in one frame.
+const MAX_FRAME_SECONDS = 0.25;
+
+// Keep in sync with .marker width in styles.css.
+const MARKER_WIDTH = 10;
+
+// Character rendering. The figure rotates about its feet, which sit at (120, 130) in the
+// SVG's viewBox — keep these in sync with the <g id="figure"> pivot in index.html.
+const FIGURE_PIVOT_X = 120;
+const FIGURE_PIVOT_Y = 130;
+// Tilt at the fall threshold. Chosen to look precarious but still standing: the topple to
+// FALLEN_DEGREES is what reads as losing.
+const MAX_TILT_DEGREES = 34;
+const FALLEN_DEGREES = 84;
+// Arms swing against the direction being held, so a correction is visible as a pose.
+const ARM_SWING_DEGREES = 16;
+const ARM_PIVOT_Y = 74;
+// Rotating about the feet alone leaves the toppled body half-buried in the ground line;
+// lifting it afterwards lands it on top of the ground instead.
+const FALLEN_LIFT = 14;
+
+// ---------------------------------------------------------------------------
+// tuning form
+// ---------------------------------------------------------------------------
+
+function buildParams() {
+  const host = $('params');
+  host.innerHTML = '';
+  for (const p of PARAMS) {
+    const wrap = document.createElement('div');
+    wrap.className = 'param';
+
+    const label = document.createElement('label');
+    label.textContent = p.label;
+    label.htmlFor = `num-${p.key}`;
+
+    const field = document.createElement('div');
+    field.className = 'field';
+
+    const range = document.createElement('input');
+    range.type = 'range';
+    range.id = `range-${p.key}`;
+    Object.assign(range, { min: p.min, max: p.max, step: p.step, value: config[p.key] });
+
+    const num = document.createElement('input');
+    num.type = 'number';
+    num.id = `num-${p.key}`;
+    num.dataset.param = p.key;
+    Object.assign(num, { min: p.min, max: p.max, step: p.step, value: config[p.key] });
+
+    const sync = (value, mirror) => {
+      const v = Number(value);
+      if (!Number.isFinite(v)) return;
+      config = createConfig({ ...config, [p.key]: v });
+      mirror.value = String(v);
+      markPresetMatch();
+    };
+    range.addEventListener('input', () => sync(range.value, num));
+    num.addEventListener('input', () => sync(num.value, range));
+
+    const note = document.createElement('span');
+    note.className = 'note';
+    note.textContent = p.note;
+
+    field.append(range, num);
+    wrap.append(label, field, note);
+    host.appendChild(wrap);
+  }
+}
+
+function applyPreset(name) {
+  config = createConfig({ ...DEFAULT_CONFIG, ...PRESETS[name] });
+  for (const p of PARAMS) {
+    $(`range-${p.key}`).value = String(config[p.key]);
+    $(`num-${p.key}`).value = String(config[p.key]);
+  }
+  markPresetMatch();
+}
+
+// Highlight a preset only while the form still matches it exactly.
+function markPresetMatch() {
+  for (const btn of document.querySelectorAll('.preset')) {
+    const preset = { ...DEFAULT_CONFIG, ...PRESETS[btn.dataset.preset] };
+    const matches = PARAMS.every((p) => Math.abs(preset[p.key] - config[p.key]) < 1e-9);
+    btn.classList.toggle('active', matches);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// run lifecycle
+// ---------------------------------------------------------------------------
+
+function startRun() {
+  state = createState({
+    config,
+    isDrunk: $('is-drunk').checked,
+    startingLeanSign: Math.random() < 0.5 ? -1 : 1,
+  });
+  leftHeld = false;
+  rightHeld = false;
+  running = true;
+  accumulator = 0;
+  lastFrame = performance.now();
+
+  $('start').textContent = 'Restart';
+  $('bar').classList.remove('fallen');
+  $('scene').classList.remove('fallen');
+  setStatus('Balancing…', 'running');
+  render();
+
+  cancelAnimationFrame(rafHandle);
+  rafHandle = requestAnimationFrame(frame);
+}
+
+function endRun() {
+  running = false;
+  cancelAnimationFrame(rafHandle);
+  rafHandle = null;
+  $('bar').classList.add('fallen');
+  // Added before the render below so the topple animates from the last standing pose.
+  $('scene').classList.add('fallen');
+
+  const score = state.finalScore ?? state.elapsedTime;
+  if (best === null || score > best) best = score;
+  recordRun(score);
+  setStatus(`You fell! Survived: ${formatTime(score)} — press Start or Space to go again.`, 'fallen');
+  render();
+}
+
+function setStatus(text, cls = '') {
+  const el = $('status');
+  el.textContent = text;
+  el.className = `status ${cls}`;
+}
+
+// ---------------------------------------------------------------------------
+// loop
+// ---------------------------------------------------------------------------
+
+function frame(nowMs) {
+  if (!running) return;
+
+  const elapsed = Math.min((nowMs - lastFrame) / 1000, MAX_FRAME_SECONDS);
+  lastFrame = nowMs;
+  accumulator += elapsed;
+
+  // Fixed timestep: the physics is identical on a 60 Hz and a 144 Hz display.
+  state = setInput(state, reduceInput(leftHeld, rightHeld));
+  while (accumulator >= FIXED_STEP && !state.isFallen) {
+    state = tick(state, config, FIXED_STEP);
+    accumulator -= FIXED_STEP;
+  }
+
+  render();
+  if (state.isFallen) return endRun();
+  rafHandle = requestAnimationFrame(frame);
+}
+
+// ---------------------------------------------------------------------------
+// rendering
+// ---------------------------------------------------------------------------
+
+// Green at centre through amber to red at the threshold.
+function dangerColour(danger) {
+  return `hsl(${145 - 145 * danger} 60% ${52 - 8 * danger}%)`;
+}
+
+// The character is a pure function of tilt: one rotation about the feet, plus an arm
+// swing for the held direction. No physics here — tiltFraction does the only arithmetic.
+function renderFigure(tilt, danger) {
+  const degrees = state.isFallen
+    ? Math.sign(tilt || 1) * FALLEN_DEGREES
+    : tilt * MAX_TILT_DEGREES;
+  const spin = `rotate(${degrees.toFixed(2)} ${FIGURE_PIVOT_X} ${FIGURE_PIVOT_Y})`;
+  $('figure').setAttribute(
+    'transform',
+    state.isFallen ? `translate(0 ${-FALLEN_LIFT}) ${spin}` : spin
+  );
+  $('figure').style.color = dangerColour(danger);
+
+  const swing = state.isFallen ? 0 : -state.inputDirection * ARM_SWING_DEGREES;
+  $('arms').setAttribute('transform', `rotate(${swing} ${FIGURE_PIVOT_X} ${ARM_PIVOT_Y})`);
+}
+
+function render() {
+  if (!state) return;
+  const danger = dangerLevel(state, config);
+
+  renderFigure(tiltFraction(state, config), danger);
+
+  const marker = $('marker');
+  // Inset by the marker's own width so it stays fully inside the bar at both extremes
+  // rather than being half-clipped by the overflow at lean = ±1.
+  marker.style.left = `calc(${MARKER_WIDTH / 2}px + ${leanFraction(state, config)} * (100% - ${MARKER_WIDTH}px))`;
+  marker.style.backgroundColor = dangerColour(danger);
+
+  $('timer').textContent = formatTime(state.finalScore ?? state.elapsedTime);
+  $('gravity').textContent = state.gravityCoefficient.toFixed(3);
+  $('lean').textContent = state.lean.toFixed(3);
+  $('velocity').textContent = state.leanVelocity.toFixed(3);
+  $('input').textContent = state.inputDirection === -1 ? '← left'
+    : state.inputDirection === 1 ? 'right →' : '— none';
+  $('best').textContent = best === null ? '—' : formatTime(best);
+}
+
+function recordRun(score) {
+  runs.unshift({
+    n: runs.length + 1,
+    score,
+    isDrunk: state.isDrunk,
+    gravityRampRate: config.gravityRampRate,
+    correctionStrength: config.correctionStrength,
+    damping: config.damping,
+    gravityStart: state.isDrunk ? config.drunkGravityStart : config.baseGravityStart,
+    initialLean: config.initialLeanMagnitude,
+  });
+  renderRuns();
+}
+
+function renderRuns() {
+  const body = $('runs-rows');
+  body.innerHTML = '';
+  $('runs-empty').classList.toggle('hidden', runs.length > 0);
+  $('runs-empty').style.display = runs.length ? 'none' : '';
+
+  for (const r of runs) {
+    const tr = document.createElement('tr');
+    if (best !== null && Math.abs(r.score - best) < 1e-9) tr.classList.add('best');
+    tr.dataset.score = r.score.toFixed(2);
+    const cells = [
+      String(r.n), formatTime(r.score), r.isDrunk ? 'yes' : 'no',
+      r.gravityRampRate.toFixed(3), r.correctionStrength.toFixed(2),
+      r.damping.toFixed(2), r.gravityStart.toFixed(2), r.initialLean.toFixed(3),
+    ];
+    for (const text of cells) {
+      const td = document.createElement('td');
+      td.textContent = text;
+      tr.appendChild(td);
+    }
+    body.appendChild(tr);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// input — reduced to booleans here; the logic layer only ever sees -1/0/1
+// ---------------------------------------------------------------------------
+
+const LEFT_KEYS = new Set(['ArrowLeft', 'KeyA']);
+const RIGHT_KEYS = new Set(['ArrowRight', 'KeyD']);
+
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    startRun();
+    return;
+  }
+  if (LEFT_KEYS.has(e.code)) { leftHeld = true; e.preventDefault(); }
+  else if (RIGHT_KEYS.has(e.code)) { rightHeld = true; e.preventDefault(); }
+});
+
+window.addEventListener('keyup', (e) => {
+  if (LEFT_KEYS.has(e.code)) { leftHeld = false; e.preventDefault(); }
+  else if (RIGHT_KEYS.has(e.code)) { rightHeld = false; e.preventDefault(); }
+});
+
+// Releasing focus must not leave a key stuck down.
+window.addEventListener('blur', () => { leftHeld = false; rightHeld = false; });
+
+function bindHold(button, set) {
+  const down = (e) => { e.preventDefault(); set(true); button.classList.add('pressed'); };
+  const up = () => { set(false); button.classList.remove('pressed'); };
+  button.addEventListener('pointerdown', down);
+  button.addEventListener('pointerup', up);
+  button.addEventListener('pointerleave', up);
+  button.addEventListener('pointercancel', up);
+}
+bindHold($('touch-left'), (v) => { leftHeld = v; });
+bindHold($('touch-right'), (v) => { rightHeld = v; });
+
+// ---------------------------------------------------------------------------
+// wiring
+// ---------------------------------------------------------------------------
+
+$('start').addEventListener('click', startRun);
+$('clear-runs').addEventListener('click', () => { runs = []; best = null; renderRuns(); render(); });
+for (const btn of document.querySelectorAll('.preset')) {
+  btn.addEventListener('click', () => applyPreset(btn.dataset.preset));
+}
+
+buildParams();
+markPresetMatch();
+renderRuns();
+
+// Test hook — lets the browser suite read authoritative state and drive input without
+// synthesising key events. No role in gameplay.
+window.__bal = {
+  getState: () => state,
+  getConfig: () => config,
+  isRunning: () => running,
+  getRuns: () => runs,
+  start: startRun,
+  setHeld: (left, right) => { leftHeld = left; rightHeld = right; },
+  setConfig: (patch) => { config = createConfig({ ...config, ...patch }); },
+};
+
+</script>
+  </body>
+</html>
