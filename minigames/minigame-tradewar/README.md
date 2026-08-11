@@ -5,7 +5,7 @@ Vanilla JS/HTML/CSS, no frameworks. Local pass-and-play on one device.
 
 ```
 index.html             markup for all five screens
-styles.css             readability-only styling (no art pass)
+styles.css             readability styling + the card faces and backs
 DESIGN.md              design decisions, reuse, and porting caveats
 src/game.js            rules/state layer — pure, no DOM, JSON-serializable state
 src/ui.js              rendering + input; never decides legality itself
@@ -26,6 +26,9 @@ npm run ui                      # end-to-end checks (starts its own server + Chr
 ```
 
 `npm run ui` needs `npx playwright install chromium` once. Set `TW_PORT` if 8137 is busy.
+
+The copy in `minigame-demos/` at the repo root is refreshed from this build by
+`node scripts/sync-demos.mjs` (`--check` reports staleness without writing).
 
 ## Distributing it
 

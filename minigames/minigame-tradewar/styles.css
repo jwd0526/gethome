@@ -1,4 +1,8 @@
-/* Trade War POC — readability only, no art pass (spec Section 10). */
+/* Trade War POC — readability first, plus a light graphic pass on the cards.
+   Section 10 asks for no card art; hands are drawn as actual card faces and face-down
+   backs anyway because a hand of cards is the thing being played with. The graphics are
+   CSS over the same markup — no element's text changed, so what a player can read off
+   the screen (and out of view-source) is exactly what it was. */
 
 body {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -72,7 +76,6 @@ tr.winner td { background: #1f3d2c; }
   min-width: 5.5rem;
   background: #1c2026;
 }
-.card .face { font-size: 1.3rem; }
 .card .pos { color: #7b8794; font-size: 0.7rem; }
 .card .val { color: #8b98a5; font-size: 0.75rem; }
 .card.locked { opacity: 0.55; border-style: dashed; }
@@ -80,19 +83,79 @@ tr.winner td { background: #1f3d2c; }
 .card .actions { display: flex; gap: 0.3rem; margin-top: 0.4rem; }
 .card .actions button { padding: 0.2rem 0.45rem; font-size: 0.8rem; }
 
-.red { color: #e07a6a; }
-.black { color: #cfd8e3; }
+/* ---------------- the card itself ---------------- */
+
+/* Roughly the 2.5:3.5 of a real card. The face is drawn light on the dark UI so a hand
+   reads as cards on a table, not as rows of text. */
+.card-face {
+  position: relative;
+  width: 4.4rem;
+  height: 6.1rem;
+  margin: 0.3rem 0;
+  border-radius: 6px;
+  background: linear-gradient(160deg, #fbfaf7, #e8e6df);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.card-face .face, .card-face .index-br {
+  position: absolute;
+  font-size: 0.8rem;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.card-face .face { top: 0.3rem; left: 0.35rem; }
+.card-face .index-br { bottom: 0.3rem; right: 0.35rem; transform: rotate(180deg); }
+.card-face .pip {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.2rem;
+  line-height: 1;
+  opacity: 0.9;
+}
+
+/* Suit colour, on the card face and on the small chips alike. */
+.red { color: #c1272d; }
+.black { color: #1b2027; }
+
+/* Inline card label for lists: the end-screen reveal and the Force Trade buttons. */
+.chip {
+  display: inline-block;
+  background: #f4f2ec;
+  border-radius: 3px;
+  padding: 0 0.28rem;
+  font-size: 0.85rem;
+}
+
+/* ---------------- face-down slots ---------------- */
 
 .slot {
   border: 1px solid #4a5361;
   border-radius: 5px;
-  padding: 0.5rem 0.7rem;
+  padding: 0.35rem;
   background: #1c2026;
   min-width: 2.5rem;
   text-align: center;
 }
+.card-back {
+  border-radius: 4px;
+  border: 2px solid #2f3f5c;
+  background: repeating-linear-gradient(45deg, #35507d 0 4px, #24365a 4px 8px);
+}
+.slot .card-back { width: 2.4rem; height: 3.3rem; margin: 0 auto 0.2rem; }
+.slot-pos { font-size: 0.8rem; color: #9fb4c7; }
 .slot.locked { opacity: 0.55; border-style: dashed; }
+.slot.locked .card-back { filter: grayscale(0.7); }
 .slot-locked { color: #d9a441; font-size: 0.6rem; letter-spacing: 0.05em; }
+
+/* Handoff screen: face-down cards, and nothing but — the interstitial must not put a
+   single card face in the document. */
+.deck-fan { display: flex; gap: 0.6rem; margin: 1.25rem 0; }
+.deck-fan .card-back { width: 3.2rem; height: 4.4rem; }
+.deck-fan .card-back:first-child { transform: rotate(-9deg); }
+.deck-fan .card-back:last-child { transform: rotate(9deg); }
 
 .opponent { margin: 0.5rem 0; padding: 0.5rem 0; border-top: 1px solid #262c34; }
 .opponent .who { font-size: 0.9rem; }

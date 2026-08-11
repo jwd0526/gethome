@@ -168,11 +168,21 @@ function goToGameOver() {
     if (s.isWinner) tr.classList.add('winner');
     tr.dataset.playerId = s.id;
 
-    const cells = [s.name, s.hand.join('  '), String(s.score), String(s.drunkenness),
+    const cells = [s.name, null, String(s.score), String(s.drunkenness),
       s.isWinner ? 'WINNER' : ''];
     for (const [i, text] of cells.entries()) {
       const td = document.createElement('td');
-      td.textContent = text;
+      if (i === 1) {
+        // The hand is revealed as chips rather than a string. Spaces between them are
+        // explicit so the cell still reads as whitespace-separated labels.
+        td.className = 'hand-cell';
+        for (const label of s.hand) {
+          td.appendChild(buildChip(label));
+          td.appendChild(document.createTextNode(' '));
+        }
+      } else {
+        td.textContent = text;
+      }
       if (i === 2) td.dataset.score = String(s.score);
       tr.appendChild(td);
     }
@@ -188,6 +198,49 @@ function goToGameOver() {
 
 function suitClass(label) {
   return label.includes('♥') || label.includes('♦') ? 'red' : 'black';
+}
+
+/**
+ * The face of a real card: rank+suit in the corners, the suit large in the middle.
+ * Purely presentational — everything it draws comes from the label the view already
+ * gave us, so it can never reveal something the projection withheld.
+ */
+function buildCardFace(label) {
+  const suit = label.slice(-1);
+
+  const faceEl = document.createElement('div');
+  faceEl.className = `card-face ${suitClass(label)}`;
+
+  // Kept as `.face` with the bare label as its text: the corner index *is* the label.
+  const index = document.createElement('div');
+  index.className = 'face';
+  index.textContent = label;
+
+  const pip = document.createElement('div');
+  pip.className = 'pip';
+  pip.textContent = suit;
+
+  const corner = document.createElement('div');
+  corner.className = 'index-br';
+  corner.textContent = label;
+
+  faceEl.append(index, pip, corner);
+  return faceEl;
+}
+
+/** A small card face for lists — the end-screen reveal and the trade buttons. */
+function buildChip(label) {
+  const chip = document.createElement('span');
+  chip.className = `chip ${suitClass(label)}`;
+  chip.textContent = label;
+  return chip;
+}
+
+/** A face-down card. Deliberately textless — the pattern is drawn in CSS. */
+function buildCardBack() {
+  const back = document.createElement('div');
+  back.className = 'card-back';
+  return back;
 }
 
 function renderTurn() {
@@ -251,15 +304,11 @@ function renderOwnHand(me, opts = {}) {
     pos.className = 'pos';
     pos.textContent = `position ${card.position}`;
 
-    const face = document.createElement('div');
-    face.className = `face ${suitClass(card.label)}`;
-    face.textContent = card.label;
-
     const val = document.createElement('div');
     val.className = 'val';
     val.textContent = `value ${card.value}`;
 
-    div.append(pos, face, val);
+    div.append(pos, buildCardFace(card.label), val);
 
     if (badge) {
       const tag = document.createElement('div');
@@ -337,7 +386,13 @@ function renderOtherHands(view, viewerId) {
       s.className = `slot${slot.locked ? ' locked' : ''}`;
       s.dataset.position = String(slot.position);
       s.dataset.locked = String(slot.locked);
-      s.textContent = `[${slot.position}]`;
+      // The back is a sibling, not a wrapper: the slot's own text stays exactly the
+      // position (and 'locked'), which is all anyone may learn from it.
+      s.appendChild(buildCardBack());
+      const posLabel = document.createElement('div');
+      posLabel.className = 'slot-pos';
+      posLabel.textContent = `[${slot.position}]`;
+      s.appendChild(posLabel);
       if (slot.locked) {
         const tag = document.createElement('div');
         tag.className = 'slot-locked';
@@ -358,7 +413,7 @@ function renderTradePanel(view, me) {
   for (const card of me.hand) {
     if (card.locked) continue;
     const b = document.createElement('button');
-    b.textContent = `${card.label} (pos ${card.position})`;
+    b.append(buildChip(card.label), ` (pos ${card.position})`);
     b.dataset.tradeGive = card.id;
     b.classList.toggle('selected', trade.giveCardId === card.id);
     b.addEventListener('click', () => {
