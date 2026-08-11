@@ -191,6 +191,34 @@ documents the invariant, the second proves the fallback works if the invariant e
 
 ---
 
+### D9 — The table is a layout, not a second source of truth
+
+**Decision.** The turn screen is a felt with seats around it, piles in the middle, and the
+viewer at the bottom. Three things it deliberately does *not* do:
+
+- **Opponent slots stay in position order, even once some are locked.** Locked slots are
+  greyed and dropped a few pixels in place rather than grouped into a separate bank. Force
+  Trade is a blind pick *by position*; reordering an opponent's cards would scramble the
+  only handle the trader has on them.
+- **Your own locked cards stay inside `#own-hand`, in a second zone.** A locked card is
+  still yours, still on the table and still scored — only its reach has changed, which is
+  what the split says. Hiding it would be lying about the game state.
+- **The discard is a count, not a list.** Faces are never public (D4), so the pile is drawn
+  face-down like every other card nobody owns. `viewFor` exposes `discardCount` and
+  `deckCount`; it does not expose what is in either.
+
+**Flight animations are decorative and non-blocking.** The action resolves first and the
+real cards are in their final places before anything moves; a ghost card is then tweened
+over the table from the pre-action geometry to the post-action geometry. Nothing waits on
+it, clicking straight through is always safe, and `prefers-reduced-motion` skips it
+entirely. The ghosts live in `#fly-layer`, which `show()` tears down with the rest of the
+turn screen — a card in flight must not survive into the handoff (D4).
+
+**Port note.** The seat ring, the zone split and the tweens are all view concerns computed
+from `viewFor`. None of them needs state the rules layer does not already publish.
+
+---
+
 ## 3. Invariants the tests exist to protect
 
 These are the things a port must not break. Each maps to a check that fails loudly.
