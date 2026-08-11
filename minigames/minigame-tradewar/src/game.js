@@ -617,6 +617,9 @@ export function viewFor(state, viewerId) {
     viewerId,
     timerEndsAt: state.timerEndsAt,
     deckCount: state.deck.length,
+    // Counts only. What is *in* the discard stays private: faces are never public, so the
+    // pile is drawn face-down like every other card nobody owns.
+    discardCount: state.discard.length,
     players: state.players.map((p) => ({
       id: p.id,
       name: p.name,
