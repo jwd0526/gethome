@@ -57,6 +57,13 @@ page.on('pageerror', (e) => { failures++; console.log(`   ✗ page error: ${e.me
 const state = () => page.evaluate(() => window.__bal.getState());
 const config = () => page.evaluate(() => window.__bal.getConfig());
 
+/** Degrees out of an SVG transform, ignoring any translate the fallen pose adds. */
+const rotationOf = (id) => page.evaluate((elId) => {
+  const t = document.getElementById(elId).getAttribute('transform') ?? '';
+  const m = /rotate\(\s*(-?[\d.]+)/.exec(t);
+  return m ? Number(m[1]) : null;
+}, id);
+
 try {
   await check('page loads and the marker starts centred', async () => {
     await page.goto(URL);
@@ -116,6 +123,81 @@ try {
     // what actually proves the mapping. This only guards against a frozen marker.
     ok(spread > 1, `marker visibly moved during the run (${spread.toFixed(1)}px of travel)`);
     note(`lean ${samples[0].lean.toFixed(3)} -> ${samples.at(-1).lean.toFixed(3)}, marker travelled ${spread.toFixed(1)}px`);
+  });
+
+  await check('the figure leans with the lean, and topples when the run ends', async () => {
+    await page.goto(URL);
+    eq(await rotationOf('figure'), 0, 'figure stands upright before a run');
+    eq(await rotationOf('arms'), 0, 'arms are level before a run');
+
+    // Start well off centre with little damping so the samples sweep most of the way to
+    // the threshold. On the spec defaults a run drifts too slowly to say much.
+    await page.evaluate(() => window.__bal.setConfig({
+      initialLeanMagnitude: 0.25, damping: 0.2, baseGravityStart: 2.2,
+    }));
+    await page.click('#start');
+    await page.waitForTimeout(150);
+
+    // The figure is a linear readout of tiltFraction, so angle / (lean / threshold) is the
+    // same constant at every sample. Testing the ratio rather than a hardcoded 34° means
+    // the check survives a retune of how far the figure leans.
+    const threshold = (await config()).fallThreshold;
+    const samples = [];
+    for (let i = 0; i < 12; i++) {
+      const [s, deg] = [await state(), await rotationOf('figure')];
+      if (!s.isFallen) samples.push({ lean: s.lean, deg });
+      await page.waitForTimeout(90);
+    }
+    ok(samples.length >= 6, `collected ${samples.length} standing samples`);
+    const swept = Math.abs(samples.at(-1).lean - samples[0].lean) / threshold;
+    ok(swept > 0.3, `samples sweep a real range of the bar (${(swept * 100).toFixed(0)}% of threshold)`);
+
+    const ratios = samples.map((s) => s.deg / (s.lean / threshold));
+    const spread = Math.max(...ratios) - Math.min(...ratios);
+    ok(spread < 0.5, `tilt stays linear in lean (ratio spread ${spread.toFixed(3)}°)`);
+    const perFullLean = ratios[0];
+    ok(perFullLean > 5 && perFullLean < 75,
+      `full lean tilts the figure a sane amount (${perFullLean.toFixed(1)}°)`);
+    for (const s of samples) {
+      ok(Math.sign(s.deg) === Math.sign(s.lean) || s.deg === 0,
+        `tilt leans the same way as lean (${s.lean.toFixed(3)} -> ${s.deg.toFixed(1)}°)`);
+      ok(Math.abs(s.deg) <= Math.abs(perFullLean) + 1e-6, 'tilt never exceeds the full-lean angle');
+    }
+    note(`lean ${samples[0].lean.toFixed(3)} -> ${samples.at(-1).lean.toFixed(3)}, ` +
+      `tilt ${samples[0].deg.toFixed(1)}° -> ${samples.at(-1).deg.toFixed(1)}°`);
+
+    // Let it fall.
+    await page.waitForFunction(() => window.__bal.getState().isFallen, null, { timeout: 30000 });
+    await page.waitForTimeout(50);
+    const fallenDeg = await rotationOf('figure');
+    ok(await page.$eval('#scene', (el) => el.classList.contains('fallen')), 'scene shows the fallen state');
+    ok(Math.abs(fallenDeg) > Math.abs(perFullLean),
+      `the topple goes past any standing lean (${fallenDeg.toFixed(1)}° vs ${perFullLean.toFixed(1)}°)`);
+    eq(Math.sign(fallenDeg), Math.sign((await state()).lean), 'falls the way it was leaning');
+    eq(await rotationOf('arms'), 0, 'arms stop swinging once the run is over');
+  });
+
+  await check('the arms swing against the direction being held', async () => {
+    // A fresh gentle run: on a steep one the fall lands before a hold can be observed.
+    await page.goto(URL);
+    await page.click('#start');
+    await page.waitForTimeout(100);
+
+    await page.evaluate(() => window.__bal.setHeld(true, false));
+    await page.waitForTimeout(120);
+    const leftArms = await rotationOf('arms');
+    await page.evaluate(() => window.__bal.setHeld(false, true));
+    await page.waitForTimeout(120);
+    const rightArms = await rotationOf('arms');
+    await page.evaluate(() => window.__bal.setHeld(false, false));
+    await page.waitForTimeout(120);
+    const noneArms = await rotationOf('arms');
+
+    ok(await page.evaluate(() => window.__bal.isRunning()), 'the run was still live throughout');
+    ok(leftArms !== 0 && rightArms !== 0,
+      `arms swing while a direction is held (${leftArms}° left, ${rightArms}° right)`);
+    eq(Math.sign(leftArms), -Math.sign(rightArms), 'the two directions swing opposite ways');
+    eq(noneArms, 0, 'arms return level when nothing is held');
   });
 
   await check('held keys reach the physics as -1 / 0 / +1', async () => {
