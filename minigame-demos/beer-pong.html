@@ -1,0 +1,1663 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Beer Pong — POC</title>
+    <style>
+/* Beer Pong POC — readability first, plus the 2D table Section 6 requires.
+   The table is not decoration: it is how a player confirms that aim and power actually
+   mapped to where the ball went. Everything else is the same flat treatment the other
+   two minigames use. */
+
+body {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  margin: 0;
+  padding: 1.5rem;
+  background: #14161a;
+  color: #e6e6e6;
+  line-height: 1.5;
+}
+
+#app { max-width: 900px; margin: 0 auto; }
+.screen.hidden, .hidden { display: none; }
+
+h1 { margin: 0 0 0.25rem; font-size: 1.6rem; }
+h2 { margin: 1.5rem 0 0.5rem; font-size: 1.05rem; color: #9fb4c7; }
+h3 { margin: 1.25rem 0 0.5rem; font-size: 1rem; color: #9fb4c7; }
+.sub { color: #8b98a5; font-size: 0.85rem; margin: 0.25rem 0 0.75rem; }
+kbd {
+  background: #23282f; border: 1px solid #3a424c; border-radius: 3px;
+  padding: 0 0.3rem; font-size: 0.85em;
+}
+
+button {
+  font: inherit; padding: 0.35rem 0.7rem; background: #23282f; color: #e6e6e6;
+  border: 1px solid #3a424c; border-radius: 4px; cursor: pointer;
+}
+button:hover:not(:disabled) { background: #2d343d; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+button.primary { background: #2f6f4f; border-color: #3d8a63; }
+button.ghost { background: transparent; }
+button.choice[aria-pressed='true'] { background: #3b5c86; border-color: #6f9ad1; }
+
+input {
+  font: inherit; padding: 0.3rem 0.5rem; background: #1c2026; color: #e6e6e6;
+  border: 1px solid #3a424c; border-radius: 4px; width: 8rem;
+}
+
+.field { margin: 0.75rem 0; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.label { color: #8b98a5; min-width: 7rem; font-size: 0.85rem; }
+
+table { border-collapse: collapse; margin: 0.75rem 0; width: 100%; }
+th, td {
+  border: 1px solid #3a424c; padding: 0.35rem 0.6rem; text-align: left;
+  font-size: 0.9rem; font-variant-numeric: tabular-nums;
+}
+th { color: #9fb4c7; font-weight: normal; }
+tr.winner td { background: #1f3d2c; }
+
+.bar {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 1rem;
+  border-bottom: 1px solid #3a424c; padding-bottom: 0.5rem; margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+#turn-indicator { font-size: 1.05rem; }
+
+.notice {
+  color: #d9a441; border: 1px solid #6b5320; background: #241f14;
+  padding: 0.4rem 0.6rem; border-radius: 4px; font-size: 0.9rem; margin: 0.5rem 0;
+}
+.notice.rerack { color: #6f9ad1; border-color: #2f4c6b; background: #14202c; }
+
+/* ---------------- the table ---------------- */
+
+/* The table is drawn end-on, so it is tall and narrow. Constraining the wrapper to the
+   viewBox's own aspect keeps the felt filling it instead of sitting letterboxed in the
+   middle of a wide box. */
+#table-wrap {
+  margin: 0.75rem auto;
+  max-width: 380px;
+  border: 1px solid #2e4a3b;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #101713;
+}
+#table { display: block; width: 100%; height: auto; aspect-ratio: 100 / 132; }
+
+.felt { fill: #16281f; stroke: #2e4a3b; stroke-width: 0.5; }
+.halfway { stroke: #2e4a3b; stroke-width: 0.4; stroke-dasharray: 2 2; }
+
+.cup {
+  fill: #e8e4d8;
+  stroke: #9a927f;
+  stroke-width: 0.5;
+  transition: opacity 160ms linear, transform 160ms ease-in;
+}
+/* A sunk cup leaves its ring behind, so the shape of the rack stays readable. */
+.cup.sunk { fill: none; stroke: #2b3a33; stroke-dasharray: 1.5 1.5; }
+.cup.sd { fill: #f0d27a; stroke: #d9a441; }
+.cup.sinking { animation: cup-sink 340ms ease-in forwards; transform-box: fill-box; transform-origin: center; }
+@keyframes cup-sink {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.3); }
+}
+
+.rack.near .cup { opacity: 0.75; }
+.rack-label { fill: #7b8794; font-size: 4px; font-family: inherit; }
+.cup-caption { fill: #8b98a5; font-size: 3.6px; font-family: inherit; }
+
+.ball { fill: #f4f2ec; stroke: #b9b4a5; stroke-width: 0.4; }
+.ball.dropping { animation: ball-drop 340ms ease-in forwards; }
+.ball.bouncing { animation: ball-bounce 340ms ease-out forwards; }
+@keyframes ball-drop {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes ball-bounce {
+  0%   { opacity: 1; }
+  40%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* The tolerance radius, drawn where the ball landed — this is the tuning readout. */
+.landing-ring { fill: none; stroke: #6b7680; stroke-width: 0.4; stroke-dasharray: 1.5 1.5; }
+.landing.is-hit .landing-ring { stroke: #4caf7d; }
+
+/* ---------------- meters ---------------- */
+
+#meters { display: flex; flex-direction: column; gap: 0.6rem; margin: 1rem 0 0.5rem; }
+
+.meter-block {
+  border: 1px solid #262c34; border-radius: 5px; padding: 0.5rem 0.7rem;
+  background: #171b21; opacity: 0.55; transition: opacity 120ms linear;
+}
+.meter-block.live { opacity: 1; border-color: #3d8a63; background: #16241d; }
+
+.meter-head { display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 0.4rem; }
+.meter-name { font-size: 0.9rem; color: #cfd8e3; }
+.meter-note { color: #7b8794; font-size: 0.75rem; flex: 1; }
+.meter-value { font-size: 0.95rem; font-variant-numeric: tabular-nums; color: #9fb4c7; }
+
+.track {
+  position: relative; height: 34px; border-radius: 4px;
+  background: #1c2026; border: 1px solid #3a424c; overflow: hidden;
+}
+.track-mid {
+  position: absolute; top: 0; bottom: 0; left: 50%; width: 1px;
+  background: #3a424c; transform: translateX(-0.5px);
+}
+.marker {
+  position: absolute; top: 4px; bottom: 4px; width: 8px; margin-left: -4px;
+  border-radius: 2px; background: #4caf7d;
+}
+.meter-block.live .marker { background: #6fe0a5; }
+/* Parked at rest, so an idle meter still reads as a meter rather than an empty box. */
+.meter-block:not(.live) .marker { background: #3a424c; }
+
+.status { margin: 0.5rem 0; min-height: 1.5rem; font-size: 0.95rem; }
+.status.live { color: #9fb4c7; }
+.status.hit { color: #4caf7d; }
+.status.miss { color: #e2725b; }
+.result { font-size: 1.1rem; color: #4caf7d; margin: 0.5rem 0 1rem; }
+
+.controls { display: flex; gap: 0.5rem; margin: 0.75rem 0; flex-wrap: wrap; }
+
+/* ---------------- tuning ---------------- */
+
+.params { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.6rem 1.25rem; }
+.param { display: flex; flex-direction: column; gap: 0.15rem; }
+.param label { font-size: 0.8rem; color: #9fb4c7; }
+.param .note { font-size: 0.7rem; color: #7b8794; }
+.param .field { display: flex; align-items: center; gap: 0.5rem; margin: 0; }
+.param input[type='range'] { flex: 1; min-width: 0; accent-color: #4caf7d; }
+.param input[type='number'] { width: 5.5rem; }
+
+pre {
+  background: #1c2026; border: 1px solid #3a424c; border-radius: 4px;
+  padding: 0.75rem; overflow: auto; font-size: 0.8rem; max-height: 12rem;
+  white-space: pre-wrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cup.sinking, .ball.dropping, .ball.bouncing { animation-duration: 1ms; }
+}
+
+</style>
+  </head>
+  <body>
+    <main id="app">
+      <!-- ===================== SETUP ===================== -->
+      <section id="screen-setup" class="screen">
+        <h1>Beer Pong</h1>
+        <p class="sub">
+          Two meters per throw: aim across the table, then power for depth.
+          <kbd>Space</kbd> locks each one.
+        </p>
+
+        <div class="field">
+          <span class="label">Players</span>
+          <button class="choice" data-count="2">2 — 1v1</button>
+          <button class="choice" data-count="3">3 — 1v2</button>
+          <button class="choice" data-count="4">4 — 2v2</button>
+        </div>
+
+        <div class="field">
+          <span class="label">Seed (optional)</span>
+          <input id="seed-input" type="text" placeholder="blank = random" />
+        </div>
+
+        <table id="setup-players">
+          <thead>
+            <tr>
+              <th>#</th><th>Name</th>
+              <th>Standing points</th>
+              <th>Drunkenness (0–1)</th>
+            </tr>
+          </thead>
+          <tbody id="setup-rows"></tbody>
+        </table>
+        <p class="sub">
+          Sides are seeded from standings (Section 3): 1st plays solo in a 1v2, and pairs
+          as 1st + 4th vs 2nd + 3rd in a 2v2. Leave every standing at 0 for a random draw,
+          as in the first game of a session.
+        </p>
+
+        <button id="start-game" class="primary">Start Match</button>
+      </section>
+
+      <!-- ===================== MATCH ===================== -->
+      <section id="screen-match" class="screen hidden">
+        <div class="bar">
+          <span id="turn-indicator"></span>
+          <span id="format-indicator" class="sub"></span>
+        </div>
+
+        <p id="sudden-death" class="notice hidden"></p>
+        <p id="rerack-notice" class="notice rerack hidden"></p>
+
+        <!-- The table. Both racks are drawn; the one being thrown at is highlighted. -->
+        <div id="table-wrap">
+          <svg id="table" viewBox="0 0 100 132" preserveAspectRatio="xMidYMid meet"
+               role="img" aria-label="Beer pong table with both racks">
+            <rect class="felt" x="1" y="1" width="98" height="130" rx="4" />
+            <line class="halfway" x1="1" y1="66" x2="99" y2="66" />
+
+            <!-- Far side: the rack currently being thrown at. -->
+            <g id="rack-far" class="rack far"></g>
+            <!-- Near side: the throwing team's own rack, shown for context. -->
+            <g id="rack-near" class="rack near"></g>
+
+            <circle id="ball" class="ball hidden" r="2.1" cx="50" cy="118" />
+            <g id="landing" class="landing hidden">
+              <circle class="landing-ring" r="3" cx="50" cy="30" />
+            </g>
+          </svg>
+        </div>
+
+        <!-- ===================== METERS ===================== -->
+        <div id="meters">
+          <div class="meter-block" id="aim-block">
+            <div class="meter-head">
+              <span class="meter-name">Aim</span>
+              <span class="meter-note">left ↔ right across the table</span>
+              <span id="aim-value" class="meter-value">—</span>
+            </div>
+            <div class="track" id="aim-track">
+              <div class="track-mid"></div>
+              <div id="aim-marker" class="marker"></div>
+            </div>
+          </div>
+
+          <div class="meter-block" id="power-block">
+            <div class="meter-head">
+              <span class="meter-name">Power</span>
+              <span class="meter-note">short ↔ long, how far it carries</span>
+              <span id="power-value" class="meter-value">—</span>
+            </div>
+            <div class="track" id="power-track">
+              <div class="track-mid"></div>
+              <div id="power-marker" class="marker"></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="throw-status" class="status">Press Throw (or Space) to start the aim meter.</div>
+
+        <div class="controls">
+          <button id="lock" class="primary">Throw</button>
+          <button id="new-match" class="ghost">New match</button>
+        </div>
+
+        <!-- ===================== TUNING ===================== -->
+        <section id="tuning">
+          <h2>Parameters</h2>
+          <p class="sub">
+            Section 6 calls the tolerance and the drunkenness offset tunable — these are
+            live, and apply to the very next throw.
+          </p>
+          <div class="params" id="params"></div>
+        </section>
+
+        <h2>Throw log</h2>
+        <pre id="throw-log"></pre>
+      </section>
+
+      <!-- ===================== GAME OVER ===================== -->
+      <section id="screen-over" class="screen hidden">
+        <h2>Match over</h2>
+        <p id="result-text" class="result"></p>
+        <table id="results">
+          <thead>
+            <tr><th>Team</th><th>Players</th><th>Cups left</th><th>Result</th></tr>
+          </thead>
+          <tbody id="results-rows"></tbody>
+        </table>
+        <h3>Match log</h3>
+        <pre id="match-log"></pre>
+        <button id="play-again" class="primary">New Match</button>
+      </section>
+    </main>
+
+    <script type="module">
+// Beer Pong — single-file build. Generated by build.js; edit src/ instead.
+// Template A — the timing meter.
+//
+// A marker sweeps back and forth across a track; the player locks it; the locked position
+// is the result. That is the whole mechanic, and it is the same one Bottle Flip, Axe
+// Throwing and Last Round Pour are specified to use (spec Section 10). Nothing in this
+// file knows about beer pong, cups, or the DOM — it is deliberately game-agnostic so the
+// other three Template A games can take it as-is.
+//
+// Contract:
+//   createMeter(config) -> MeterState
+//   tickMeter(state, dt) -> newState          (pure; dt in seconds)
+//   lockMeter(state)     -> newState          (value frozen at the current position)
+//
+// State is plain JSON-shaped data, so it survives a stringify/parse round trip and maps
+// onto a C++ struct in the Unreal port without redesign.
+
+/**
+ * `speed` is sweeps per second, where one sweep is a single pass across the track. A
+ * marker therefore returns to where it started every 2/speed seconds.
+ */
+const DEFAULT_METER_CONFIG = {
+  speed: 1.1,
+  // Where the marker starts. 0 is one end of the track, 1 the other.
+  startPosition: 0,
+  // +1 sweeps toward 1, -1 toward 0.
+  startDirection: 1,
+};
+
+function createMeter(config = {}) {
+  const merged = { ...DEFAULT_METER_CONFIG, ...config };
+  return {
+    position: clampUnit(merged.startPosition),
+    direction: merged.startDirection >= 0 ? 1 : -1,
+    speed: merged.speed,
+    isLocked: false,
+    value: null,
+  };
+}
+
+/**
+ * Advance the sweep by `dt` seconds. Pure: returns a new state.
+ *
+ * The bounce is computed by reflection rather than by clamping and flipping, so a single
+ * large dt (a backgrounded tab, or a coarse fixed step) lands in the same place a hundred
+ * small ones would. Clamping would silently park the marker on an end instead.
+ */
+function tickMeter(state, dt) {
+  if (state.isLocked) return state;
+
+  const travelled = state.position + state.direction * state.speed * dt;
+  const { position, direction } = reflect(travelled, state.direction);
+  return { ...state, position, direction };
+}
+
+/** Freeze the marker. `value` is the result the game reads; re-locking is a no-op. */
+function lockMeter(state) {
+  if (state.isLocked) return state;
+  return { ...state, isLocked: true, value: state.position };
+}
+
+/**
+ * Fold a position back into [0, 1] by reflecting off each end, tracking which way the
+ * marker ends up travelling. Handles any overshoot, including several sweeps' worth.
+ */
+function reflect(position, direction) {
+  let p = position;
+  let d = direction;
+
+  // Each fold consumes one end. The loop runs at most ceil(overshoot) times.
+  let guard = 0;
+  while (p < 0 || p > 1) {
+    if (++guard > 1000) return { position: clampUnit(p), direction: d };
+    if (p < 0) {
+      p = -p;
+      d = 1;
+    } else {
+      p = 2 - p;
+      d = -1;
+    }
+  }
+  return { position: p, direction: d };
+}
+
+function clampUnit(n) {
+  return Math.max(0, Math.min(1, n));
+}
+
+/**
+ * Advance a meter by `seconds` in fixed sub-steps. The UI accumulates real frame time and
+ * calls this, so the sweep runs at the same rate on a 60 Hz and a 144 Hz display.
+ */
+function advanceMeter(state, seconds, fixedStep = METER_FIXED_STEP) {
+  let next = state;
+  let remaining = seconds;
+  let guard = 0;
+  while (remaining > 1e-9 && !next.isLocked) {
+    if (++guard > 100000) break;
+    const step = Math.min(fixedStep, remaining);
+    next = tickMeter(next, step);
+    remaining -= step;
+  }
+  return next;
+}
+
+const METER_FIXED_STEP = 1 / 120;
+
+// Beer Pong — rules/state layer.
+//
+// Pure logic. No DOM, no timers, no rendering. Everything in GameState is JSON-shaped
+// (strings, numbers, booleans, arrays, plain objects) so the whole state survives
+// JSON.stringify/parse and maps ~1:1 onto a C++ struct later.
+//
+// Cup positions are plain {x, y} in a rack-local space (Section 10): the Unreal port
+// remaps the coordinate space, it does not redesign the data.
+//
+// Contract that survives the port:
+//   applyThrow(state, aimValue, powerValue) -> { newState, throwResult }
+//   startTurn(state)                        -> newState   (runs the re-rack check)
+//   checkRerack(team)                       -> CupSlot[] | null
+//
+// Section references are to minigame-beerpong.md.
+
+// ---------------------------------------------------------------------------
+// config
+// ---------------------------------------------------------------------------
+
+/** Section 6 tunables. Defaults are playtest starting points, not spec constants. */
+const DEFAULT_CONFIG = {
+  // Tolerance radius in rack units, where adjacent cups sit 1.0 apart. Below 0.5 a throw
+  // has to land inside the cup's own footprint; above 0.5 neighbouring tolerances overlap
+  // and the nearest cup wins.
+  toleranceRadius: 0.42,
+
+  // Section 6: aim offset at drunkenness 1.0, in meter units (the aim meter runs 0..1
+  // across the throwing lane). 0.09 is a little under one cup-width of drift at the full
+  // rack, so a sober player is never nudged and a blackout player is rarely accurate.
+  maxAimOffset: 0.09,
+
+  // How far past the rack the meters can send a ball. Without margin every throw would
+  // land somewhere on the rack and misses would be impossible.
+  aimMargin: 1.0,
+  powerMargin: 0.9,
+};
+
+function createConfig(overrides = {}) {
+  return { ...DEFAULT_CONFIG, ...overrides };
+}
+
+// ---------------------------------------------------------------------------
+// rack geometry
+// ---------------------------------------------------------------------------
+
+// Cups are unit-diameter and touching, so a row sits sqrt(3)/2 behind the one in front.
+const ROW_GAP = Math.sqrt(3) / 2;
+
+/** Section 4: 10 cups is rows of 1-2-3-4 front to back; re-racks are prefixes of that. */
+const FULL_RACK_ROWS = [1, 2, 3, 4];
+const RERACK_STEPS = [
+  { threshold: 6, rows: [1, 2, 3], label: '1-2-3' },
+  { threshold: 3, rows: [1, 2], label: '1-2' },
+];
+
+/**
+ * Slot positions for a triangle of `rows`, front row first. x is centred on 0 and grows
+ * to the right; y grows toward the back. Row r holds r+1 cups.
+ */
+function rackPositions(rows = FULL_RACK_ROWS) {
+  const slots = [];
+  for (const [row, count] of rows.entries()) {
+    for (let col = 0; col < count; col++) {
+      slots.push({
+        row,
+        col,
+        x: col - (count - 1) / 2,
+        y: row * ROW_GAP,
+      });
+    }
+  }
+  return slots;
+}
+
+/** The x/y span a full rack occupies — the fixed frame the meters map onto. */
+function rackExtent(rows = FULL_RACK_ROWS) {
+  const slots = rackPositions(rows);
+  return {
+    minX: Math.min(...slots.map((s) => s.x)),
+    maxX: Math.max(...slots.map((s) => s.x)),
+    minY: Math.min(...slots.map((s) => s.y)),
+    maxY: Math.max(...slots.map((s) => s.y)),
+  };
+}
+
+/** Section 7: the sudden-death cup sits centred, at the back of a full rack. */
+function suddenDeathPosition() {
+  const { maxY } = rackExtent();
+  return { x: 0, y: maxY };
+}
+
+function buildRack(rows = FULL_RACK_ROWS) {
+  return rackPositions(rows).map((slot, i) => ({
+    id: `c${i + 1}`,
+    row: slot.row,
+    col: slot.col,
+    x: slot.x,
+    y: slot.y,
+    isSunk: false,
+  }));
+}
+
+function remainingCups(team) {
+  return team.cupRack.filter((c) => !c.isSunk);
+}
+
+/**
+ * Section 4 — which layout this rack owes, or null if none is due.
+ *
+ * The check is `remaining <= threshold`, not `=== threshold`: a turn's two throws can take
+ * a rack from 7 to 5 and skip the number entirely, and the spec's own example expects that
+ * case to re-rack. `appliedThresholds` keeps each step to once per game.
+ */
+function checkRerack(team) {
+  const remaining = remainingCups(team).length;
+  for (const step of RERACK_STEPS) {
+    if (remaining <= step.threshold && !team.appliedThresholds.includes(step.threshold)) {
+      return step;
+    }
+  }
+  return null;
+}
+
+/**
+ * Re-pack the surviving cups into `rows`, filling front to back, left to right. A layout
+ * can hold more slots than there are cups left (5 cups into the 6-slot 1-2-3); the tail
+ * slots simply go unused, which is how a real rack is re-formed.
+ */
+function repack(team, step) {
+  const survivors = remainingCups(team);
+  const slots = rackPositions(step.rows);
+  const cupRack = survivors.map((cup, i) => {
+    const slot = slots[i] ?? slots[slots.length - 1];
+    return { ...cup, row: slot.row, col: slot.col, x: slot.x, y: slot.y };
+  });
+  return {
+    ...team,
+    cupRack,
+    appliedThresholds: [...team.appliedThresholds, step.threshold],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// setup
+// ---------------------------------------------------------------------------
+
+// Seeded PRNG (mulberry32) so a game can be reproduced exactly from its seed.
+function makeRng(seed) {
+  let a = seed >>> 0;
+  return function rng() {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffle(arr, rng) {
+  const out = arr.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+/**
+ * Section 3 — seed the two sides from session standings.
+ *
+ * 3 players: 1st solo against 2nd + 3rd. 4 players: 1st + 4th against 2nd + 3rd. Ties on
+ * standing points are broken by drunkenness (drunker ranks higher), the same tiebreak the
+ * rest of the game uses. With no standings at all it is a straight shuffle — the first
+ * game of a session has nothing to seed from.
+ */
+function assignTeams(players, { rng = Math.random } = {}) {
+  const count = players.length;
+  if (count < 2 || count > 4) throw new Error('beer pong seats 2, 3 or 4 players');
+
+  const hasStandings = players.some((p) => (p.standingPoints ?? 0) !== 0);
+  const ranked = hasStandings
+    ? players.slice().sort((a, b) =>
+        (b.standingPoints ?? 0) - (a.standingPoints ?? 0) ||
+        (b.drunkenness ?? 0) - (a.drunkenness ?? 0))
+    : shuffle(players, rng);
+
+  const ids = ranked.map((p) => p.id);
+  if (count === 2) return { format: '1v1', sides: [[ids[0]], [ids[1]]], ranked: ids };
+  if (count === 3) return { format: '1v2', sides: [[ids[0]], [ids[1], ids[2]]], ranked: ids };
+  return { format: '2v2', sides: [[ids[0], ids[3]], [ids[1], ids[2]]], ranked: ids };
+}
+
+/**
+ * Section 3 — a fresh match. `players` is [{ id, name, drunkenness, standingPoints }].
+ * `seed`, and the team split itself, are injectable so tests and the tuning harness can
+ * pin a match exactly.
+ */
+function createGame(opts = {}) {
+  const players = (opts.players ?? defaultPlayers(opts.playerCount ?? 2)).map((p, i) => ({
+    id: p.id ?? `p${i + 1}`,
+    name: p.name ?? `Player ${i + 1}`,
+    teamId: null,
+    drunkenness: clamp01(p.drunkenness ?? 0),
+    standingPoints: p.standingPoints ?? 0,
+  }));
+
+  const seed = opts.seed ?? Math.floor(Math.random() * 2 ** 31);
+  const rng = makeRng(seed);
+  const assignment = opts.assignment ?? assignTeams(players, { rng });
+
+  const teams = assignment.sides.map((playerIds, i) => ({
+    id: `t${i + 1}`,
+    playerIds,
+    cupRack: buildRack(),
+    appliedThresholds: [],
+    // Section 5.2: who throws first alternates turn to turn, so a paired side splits
+    // first-throw reps evenly across a game.
+    firstThrowerIndex: 0,
+  }));
+  for (const team of teams) {
+    for (const id of team.playerIds) {
+      players.find((p) => p.id === id).teamId = team.id;
+    }
+  }
+
+  const state = {
+    seed,
+    rngCursor: 0,
+    players,
+    teams,
+    matchFormat: assignment.format,
+    rankedPlayerIds: assignment.ranked,
+    activeTeamId: teams[0].id,
+    currentThrowerId: null,
+    throwsThisTurn: 0,
+    sinksThisTurn: 0,
+    turnBonusPending: false,
+    turnNumber: 0,
+    suddenDeathActive: false,
+    suddenDeathCup: null,
+    suddenDeathCurrentStreak: 0,
+    suddenDeathTargetStreak: null,
+    suddenDeathTargetTeamId: null,
+    phase: 'AIM',
+    lastThrow: null,
+    lastRerack: null,
+    lastTurn: null,
+    winnerTeamId: null,
+    loserTeamId: null,
+    finalStreaks: null,
+    log: [],
+  };
+
+  return startTurn(state);
+}
+
+function defaultPlayers(n) {
+  return Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `Player ${i + 1}` }));
+}
+
+// ---------------------------------------------------------------------------
+// turn flow
+// ---------------------------------------------------------------------------
+
+function getTeam(state, teamId) {
+  return state.teams.find((t) => t.id === teamId) ?? null;
+}
+
+function getPlayer(state, playerId) {
+  return state.players.find((p) => p.id === playerId) ?? null;
+}
+
+/** The side being thrown at: the one that is not active. */
+function defendingTeam(state) {
+  return state.teams.find((t) => t.id !== state.activeTeamId);
+}
+
+/**
+ * Section 5.1 — open a turn. The re-rack check runs here and only here, which is what
+ * makes the deferral in Section 4 fall out for free: a rack that crossed a threshold
+ * mid-turn is re-formed when the next turn opens, bonus turns included.
+ */
+function startTurn(state) {
+  const next = clone(state);
+  if (next.phase === 'GAME_OVER') return next;
+
+  next.turnNumber += 1;
+  next.throwsThisTurn = 0;
+  next.sinksThisTurn = 0;
+  // lastRerack is turn-scoped — the notice belongs to the turn it applied to. lastThrow is
+  // not: it is "the most recent throw", and clearing it at a turn boundary would blank the
+  // result of the very throw that ended the turn.
+  next.lastRerack = null;
+
+  // Sudden death has one respawning cup and no rack to re-form (Section 7).
+  if (!next.suddenDeathActive) {
+    const defenderIndex = next.teams.findIndex((t) => t.id !== next.activeTeamId);
+    const step = checkRerack(next.teams[defenderIndex]);
+    if (step) {
+      next.teams[defenderIndex] = repack(next.teams[defenderIndex], step);
+      next.lastRerack = { teamId: next.teams[defenderIndex].id, label: step.label };
+      next.log.push(`Rack reset to ${step.label} for ${next.teams[defenderIndex].id}.`);
+    }
+  }
+
+  next.currentThrowerId = throwerFor(next, 0);
+  next.phase = 'AIM';
+  return next;
+}
+
+/**
+ * Section 5.2 — who throws ball `throwIndex` of this turn. A solo side throws both; a
+ * paired side alternates, starting from whichever of the two is up first this turn.
+ */
+function throwerFor(state, throwIndex) {
+  const team = getTeam(state, state.activeTeamId);
+  if (team.playerIds.length === 1) return team.playerIds[0];
+  return team.playerIds[(team.firstThrowerIndex + throwIndex) % team.playerIds.length];
+}
+
+// ---------------------------------------------------------------------------
+// throw resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Section 6 — map a meter reading onto the throwing lane.
+ *
+ * The mapping is fixed to the *full* rack's extent plus a margin, deliberately not to the
+ * current rack's width. Pinning it to the live rack would make a re-racked rack easier to
+ * hit per meter unit, which inverts what a re-rack is: the cups get closer together, the
+ * lane does not get narrower.
+ */
+function aimToX(aimValue, config = DEFAULT_CONFIG) {
+  const { minX, maxX } = rackExtent();
+  return lerp(minX - config.aimMargin, maxX + config.aimMargin, aimValue);
+}
+
+function powerToY(powerValue, config = DEFAULT_CONFIG) {
+  const { minY, maxY } = rackExtent();
+  return lerp(minY - config.powerMargin, maxY + config.powerMargin, powerValue);
+}
+
+/** Inverse of aimToX — what a player would have to lock to aim at a given cup. */
+function xToAim(x, config = DEFAULT_CONFIG) {
+  const { minX, maxX } = rackExtent();
+  return invLerp(minX - config.aimMargin, maxX + config.aimMargin, x);
+}
+
+function yToPower(y, config = DEFAULT_CONFIG) {
+  const { minY, maxY } = rackExtent();
+  return invLerp(minY - config.powerMargin, maxY + config.powerMargin, y);
+}
+
+/**
+ * Section 6 — the drunkenness perturbation, applied to aim and to aim only.
+ *
+ * Returns the adjusted aim in meter units. At drunkenness 0 this is the identity, so a
+ * sober player's aim is exactly what they locked.
+ */
+function perturbAim(aimValue, drunkenness, rng, config = DEFAULT_CONFIG) {
+  if (!drunkenness) return aimValue;
+  const offset = (rng() * 2 - 1) * config.maxAimOffset * drunkenness;
+  return aimValue + offset;
+}
+
+/** The cups a throw could currently sink. */
+function candidateCups(state) {
+  if (state.suddenDeathActive) return state.suddenDeathCup ? [state.suddenDeathCup] : [];
+  return remainingCups(defendingTeam(state));
+}
+
+/**
+ * Section 6 — resolve one throw. Returns the new state plus a throwResult the renderer
+ * animates; the logic itself never draws anything (Section 10).
+ *
+ * The rng is drawn from the game's own seeded stream so a whole match replays from its
+ * seed, and `rngCursor` keeps that stream inside serializable state.
+ */
+/**
+ * The AIM -> POWER half of a throw. The meters are chained (spec Template A, ×2), and the
+ * phase lives in GameState rather than in the UI, so which meter is live is authoritative
+ * state rather than something the renderer remembers on the side.
+ */
+function beginPower(state) {
+  if (state.phase !== 'AIM') return state;
+  return { ...state, phase: 'POWER' };
+}
+
+function applyThrow(state, aimValue, powerValue, config = DEFAULT_CONFIG) {
+  if (state.phase === 'GAME_OVER') {
+    return { newState: state, throwResult: null, error: 'The match is over.' };
+  }
+
+  const next = clone(state);
+  const thrower = getPlayer(next, next.currentThrowerId);
+  const rng = makeRng(next.seed + next.rngCursor);
+  next.rngCursor += 1;
+
+  const adjustedAim = perturbAim(aimValue, thrower.drunkenness, rng, config);
+  const x = aimToX(adjustedAim, config);
+  const y = powerToY(powerValue, config);
+
+  // Nearest cup inside the tolerance radius. Nearest matters once the radius is wide
+  // enough for two cups to both qualify — the ball lands in one cup, not in both.
+  let hit = null;
+  let bestDistance = Infinity;
+  for (const cup of candidateCups(next)) {
+    const d = Math.hypot(cup.x - x, cup.y - y);
+    if (d <= config.toleranceRadius && d < bestDistance) {
+      bestDistance = d;
+      hit = cup;
+    }
+  }
+
+  const throwResult = {
+    throwerId: thrower.id,
+    ballIndex: next.throwsThisTurn,
+    lockedAim: aimValue,
+    adjustedAim,
+    power: powerValue,
+    target: { x, y },
+    hitCupId: hit ? hit.id : null,
+    distance: hit ? bestDistance : null,
+    isSuddenDeath: next.suddenDeathActive,
+    clearedRack: false,
+  };
+
+  next.throwsThisTurn += 1;
+  if (hit) {
+    next.sinksThisTurn += 1;
+    if (next.suddenDeathActive) {
+      // Section 7: the cup respawns instantly — it is a streak target, not a cup to clear.
+      next.suddenDeathCurrentStreak += 1;
+    } else {
+      const defenderIndex = next.teams.findIndex((t) => t.id !== next.activeTeamId);
+      const defender = next.teams[defenderIndex];
+      next.teams[defenderIndex] = {
+        ...defender,
+        cupRack: defender.cupRack.map((c) => (c.id === hit.id ? { ...c, isSunk: true } : c)),
+      };
+      if (remainingCups(next.teams[defenderIndex]).length === 0) {
+        // Section 7: clearing the rack starts sudden death, it does not end the match.
+        // The state flips here; the log line is written after the shot that caused it.
+        throwResult.clearedRack = true;
+        beginSuddenDeath(next);
+      }
+    }
+  }
+
+  next.lastThrow = throwResult;
+  next.log.push(describeThrow(next, throwResult));
+  if (throwResult.clearedRack) {
+    next.log.push('SUDDEN DEATH — rack cleared; one cup, streak against streak.');
+  }
+  next.phase = 'RESOLVE_THROW';
+  return { newState: next, throwResult };
+}
+
+/** Section 7 — flip to the single respawning target. The clearing shot itself scores 0. */
+function beginSuddenDeath(state) {
+  state.suddenDeathActive = true;
+  state.suddenDeathCup = { id: 'sd', row: 0, col: 0, ...suddenDeathPosition(), isSunk: false };
+  state.suddenDeathCurrentStreak = 0;
+}
+
+/**
+ * Section 5.5 — close out a throw. Either the next ball is up, or the turn ends.
+ * Call after each applyThrow.
+ */
+function advanceAfterThrow(state) {
+  const next = clone(state);
+  if (next.phase === 'GAME_OVER') return next;
+
+  if (next.throwsThisTurn < 2) {
+    next.currentThrowerId = throwerFor(next, next.throwsThisTurn);
+    next.phase = 'AIM';
+    return next;
+  }
+  return endTurn(next);
+}
+
+/**
+ * Section 5.5 — resolve the turn. Sinking both balls returns them and repeats the turn for
+ * the same side; anything else passes possession.
+ */
+function endTurn(state) {
+  const next = state;
+  const bonus = next.sinksThisTurn === 2;
+  const team = getTeam(next, next.activeTeamId);
+
+  next.lastTurn = {
+    teamId: next.activeTeamId,
+    sinks: next.sinksThisTurn,
+    bonus,
+    streak: next.suddenDeathCurrentStreak,
+  };
+  next.turnBonusPending = bonus;
+
+  // Section 5.2 — a paired side swaps who leads off. This fires on bonus turns too: a
+  // repeat turn is a turn, and leaving the lead-off with one player through a long bonus
+  // chain is exactly the uneven split the rule exists to prevent.
+  if (team.playerIds.length > 1) {
+    const index = next.teams.findIndex((t) => t.id === team.id);
+    next.teams[index] = {
+      ...team,
+      firstThrowerIndex: (team.firstThrowerIndex + 1) % team.playerIds.length,
+    };
+  }
+
+  if (bonus) {
+    next.phase = 'RESOLVE_TURN';
+    return startTurn(next);
+  }
+
+  // Section 7: a turn ending during sudden death is where the streak is judged.
+  if (next.suddenDeathActive) return resolveSuddenDeathTurn(next);
+
+  next.activeTeamId = defendingTeam(next).id;
+  next.phase = 'RESOLVE_TURN';
+  return startTurn(next);
+}
+
+/**
+ * Section 7 — a sudden-death turn just ended. Matching the standing target does not win;
+ * it only raises the bar and hands it back. Falling short loses on the spot.
+ */
+function resolveSuddenDeathTurn(state) {
+  const next = state;
+  const streak = next.suddenDeathCurrentStreak;
+  const target = next.suddenDeathTargetStreak;
+  const shooterId = next.activeTeamId;
+
+  if (target === null || streak >= target) {
+    next.suddenDeathTargetStreak = streak;
+    next.suddenDeathTargetTeamId = shooterId;
+    next.log.push(
+      target === null
+        ? `${shooterId} set the sudden-death target at ${streak}.`
+        : `${shooterId} matched ${target} with ${streak} — new target is ${streak}.`
+    );
+    next.suddenDeathCurrentStreak = 0;
+    next.activeTeamId = defendingTeam(next).id;
+    next.phase = 'RESOLVE_TURN';
+    return startTurn(next);
+  }
+
+  next.winnerTeamId = next.suddenDeathTargetTeamId;
+  next.loserTeamId = shooterId;
+  next.finalStreaks = { shooter: streak, target };
+  next.phase = 'GAME_OVER';
+  next.log.push(
+    `${shooterId}'s streak of ${streak} fell short of ${target} — ${next.winnerTeamId} wins.`
+  );
+  return next;
+}
+
+function checkGameOver(state) {
+  return state.phase === 'GAME_OVER';
+}
+
+// ---------------------------------------------------------------------------
+// derived readouts (for rendering — still pure)
+// ---------------------------------------------------------------------------
+
+/** "Team A" / "Team B" — the side, not its roster. */
+function teamName(state, teamId) {
+  const index = state.teams.findIndex((t) => t.id === teamId);
+  return index === -1 ? teamId : `Team ${String.fromCharCode(65 + index)}`;
+}
+
+/** Who is on the side, for the setup and end screens. */
+function teamRoster(state, teamId) {
+  const team = getTeam(state, teamId);
+  if (!team) return '';
+  return team.playerIds.map((id) => getPlayer(state, id).name).join(' + ');
+}
+
+/** Section 9 — the turn indicator line. */
+function turnLabel(state) {
+  if (state.phase === 'GAME_OVER') return 'Match over';
+  const thrower = getPlayer(state, state.currentThrowerId);
+  const ball = Math.min(state.throwsThisTurn + 1, 2);
+  return `${teamName(state, state.activeTeamId)} — ${thrower.name} throwing (Ball ${ball} of 2)`;
+}
+
+/** Section 9 — the sudden-death readout. */
+function suddenDeathLabel(state) {
+  if (!state.suddenDeathActive) return null;
+  const who = teamName(state, state.activeTeamId);
+  const streak = state.suddenDeathCurrentStreak;
+  if (state.suddenDeathTargetStreak === null) {
+    return `SUDDEN DEATH — ${who} streak: ${streak} (setting the target)`;
+  }
+  const holder = teamName(state, state.suddenDeathTargetTeamId);
+  const need = state.suddenDeathTargetStreak;
+  return `SUDDEN DEATH — ${who} streak: ${streak} (need ${need} to match ${holder})`;
+}
+
+/** Section 9 — the end-state line. */
+function resultLabel(state) {
+  if (state.phase !== 'GAME_OVER') return null;
+  const { shooter, target } = state.finalStreaks;
+  return `${teamName(state, state.winnerTeamId)} wins! ` +
+    `${teamName(state, state.loserTeamId)}'s streak of ${shooter} fell short of ` +
+    `${teamName(state, state.winnerTeamId)}'s ${target}.`;
+}
+
+function describeThrow(state, result) {
+  const who = getPlayer(state, result.throwerId).name;
+  const where = `(${result.target.x.toFixed(2)}, ${result.target.y.toFixed(2)})`;
+  if (!result.hitCupId) return `${who} missed ${where}.`;
+  if (result.isSuddenDeath) {
+    return `${who} hit the sudden-death cup ${where} — streak ${state.suddenDeathCurrentStreak}.`;
+  }
+  return `${who} sank ${result.hitCupId} ${where}.`;
+}
+
+// ---------------------------------------------------------------------------
+// helpers
+// ---------------------------------------------------------------------------
+
+// State is plain data by construction, so this both clones and asserts serializability.
+function clone(state) {
+  return JSON.parse(JSON.stringify(state));
+}
+
+const lerp = (a, b, t) => a + (b - a) * t;
+const invLerp = (a, b, v) => (v - a) / (b - a);
+const clamp01 = (n) => Math.max(0, Math.min(1, n));
+
+// Beer Pong — UI layer. Owns the meters, the throw animation, and the screens.
+// Every rule lives in beerpong.js; nothing here decides whether a throw went in.
+
+
+
+const $ = (id) => document.getElementById(id);
+
+// ---------------------------------------------------------------------------
+// scene mapping — rack units to SVG units
+//
+// The viewBox is 100 wide by 132 tall with the halfway line at y=66. The far rack (the
+// one being thrown at) is drawn full size; the near rack is the thrower's own cups, drawn
+// smaller because it is context rather than a target.
+// ---------------------------------------------------------------------------
+
+const FAR_SCALE = 15;
+const FAR_TIP_Y = 54;
+const NEAR_SCALE = 10;
+const NEAR_TIP_Y = 76;
+const BALL_ORIGIN = { x: 50, y: 126 };
+const CUP_R = 0.5; // rack units — cups are unit diameter and touching
+
+const farX = (x) => 50 + x * FAR_SCALE;
+const farY = (y) => FAR_TIP_Y - y * FAR_SCALE;
+const nearX = (x) => 50 + x * NEAR_SCALE;
+const nearY = (y) => NEAR_TIP_Y + y * NEAR_SCALE;
+
+const THROW_MS = 720;
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+// ---------------------------------------------------------------------------
+// tunables exposed in the UI (Section 6 calls these out as tune-from-playtesting)
+// ---------------------------------------------------------------------------
+
+const PARAMS = [
+  { key: 'toleranceRadius', min: 0.15, max: 0.8, step: 0.01,
+    note: 'how close to a cup centre counts as in — cups sit 1.0 apart' },
+  { key: 'maxAimOffset', min: 0, max: 0.4, step: 0.005,
+    note: 'aim drift at drunkenness 1.0, in meter units' },
+  { key: 'aimMargin', min: 0.2, max: 2.5, step: 0.05,
+    note: 'how far past the rack edge a throw can stray' },
+  { key: 'powerMargin', min: 0.2, max: 2.5, step: 0.05,
+    note: 'how short or long a throw can land' },
+];
+
+const METER_PARAMS = [
+  { key: 'aimSpeed', label: 'aim meter speed', min: 0.3, max: 3.5, step: 0.05,
+    note: 'sweeps per second — the whole difficulty dial' },
+  { key: 'powerSpeed', label: 'power meter speed', min: 0.3, max: 3.5, step: 0.05,
+    note: 'sweeps per second for the second meter' },
+];
+
+// ---------------------------------------------------------------------------
+// ui state (deliberately not part of GameState)
+// ---------------------------------------------------------------------------
+
+let state = null;
+let config = createConfig();
+let meterConfig = { aimSpeed: 1.15, powerSpeed: 1.45 };
+let playerCount = 2;
+
+let mode = 'idle'; // idle | aim | power | flying | over
+let meter = null;
+let lockedAim = null;
+let rafHandle = null;
+let lastFrame = 0;
+
+// Guards the spiral of death after a backgrounded tab: never sweep more than a quarter
+// second of catch-up in one frame.
+const MAX_FRAME_SECONDS = 0.25;
+
+// ---------------------------------------------------------------------------
+// setup screen
+// ---------------------------------------------------------------------------
+
+function renderSetupRows() {
+  const rows = $('setup-rows');
+  rows.innerHTML = '';
+  for (let i = 0; i < playerCount; i++) {
+    const tr = document.createElement('tr');
+
+    const num = document.createElement('td');
+    num.textContent = String(i + 1);
+
+    const nameCell = document.createElement('td');
+    const name = document.createElement('input');
+    name.id = `name-${i}`;
+    name.value = `Player ${i + 1}`;
+    nameCell.appendChild(name);
+
+    const standingCell = document.createElement('td');
+    const standing = document.createElement('input');
+    standing.id = `standing-${i}`;
+    standing.type = 'number';
+    standing.step = '1';
+    standing.value = '0';
+    standingCell.appendChild(standing);
+
+    const drunkCell = document.createElement('td');
+    const drunk = document.createElement('input');
+    drunk.id = `drunk-${i}`;
+    drunk.type = 'number';
+    drunk.min = '0';
+    drunk.max = '1';
+    drunk.step = '0.05';
+    drunk.value = '0';
+    drunkCell.appendChild(drunk);
+
+    tr.append(num, nameCell, standingCell, drunkCell);
+    rows.appendChild(tr);
+  }
+  for (const btn of document.querySelectorAll('.choice')) {
+    btn.setAttribute('aria-pressed', String(Number(btn.dataset.count) === playerCount));
+  }
+}
+
+function startMatch() {
+  const players = [];
+  for (let i = 0; i < playerCount; i++) {
+    players.push({
+      id: `p${i + 1}`,
+      name: $(`name-${i}`).value.trim() || `Player ${i + 1}`,
+      standingPoints: Number($(`standing-${i}`).value) || 0,
+      drunkenness: Math.max(0, Math.min(1, Number($(`drunk-${i}`).value) || 0)),
+    });
+  }
+  const rawSeed = $('seed-input').value.trim();
+  state = createGame({ players, seed: rawSeed === '' ? undefined : Number(rawSeed) });
+
+  mode = 'idle';
+  meter = null;
+  lockedAim = null;
+  show('match');
+  renderAll();
+  setStatus('Press Throw (or Space) to start the aim meter.');
+}
+
+// ---------------------------------------------------------------------------
+// screens
+// ---------------------------------------------------------------------------
+
+function show(name) {
+  for (const id of ['setup', 'match', 'over']) {
+    $(`screen-${id}`).classList.toggle('hidden', id !== name);
+  }
+}
+
+function setStatus(text, cls = '') {
+  const el = $('throw-status');
+  el.textContent = text;
+  el.className = `status ${cls}`;
+}
+
+// ---------------------------------------------------------------------------
+// rendering — racks
+// ---------------------------------------------------------------------------
+
+function renderAll() {
+  renderRacks();
+  renderHud();
+  renderMeters();
+  renderLog();
+}
+
+function renderHud() {
+  $('turn-indicator').textContent = turnLabel(state);
+  $('format-indicator').textContent =
+    `${state.matchFormat} — ${state.teams.map((t) => `${teamName(state, t.id)}: ${teamRoster(state, t.id)}`).join('  |  ')}`;
+
+  const sd = suddenDeathLabel(state);
+  $('sudden-death').textContent = sd ?? '';
+  $('sudden-death').classList.toggle('hidden', !sd);
+
+  // Section 9: the re-rack notice exists to make the deferral timing visible.
+  const rerack = state.lastRerack;
+  $('rerack-notice').textContent = rerack
+    ? `Rack reset to ${rerack.label} — ${teamName(state, rerack.teamId)}'s rack, applied at this turn's start.`
+    : '';
+  $('rerack-notice').classList.toggle('hidden', !rerack);
+}
+
+function renderRacks() {
+  const far = $('rack-far');
+  const near = $('rack-near');
+  far.innerHTML = '';
+  near.innerHTML = '';
+
+  if (state.suddenDeathActive) {
+    // Section 7: one respawning cup replaces the rack as the target.
+    far.appendChild(cupCircle(state.suddenDeathCup, farX, farY, FAR_SCALE, 'sd'));
+    far.appendChild(svgText(farX(0), farY(state.suddenDeathCup.y) + FAR_SCALE * CUP_R + 6,
+      'sudden-death cup', 'cup-caption'));
+    near.appendChild(svgText(nearX(0), nearY(1.2), 'racks are out of play', 'cup-caption'));
+    return;
+  }
+
+  const defender = defendingTeam(state);
+  const attacker = getTeam(state, state.activeTeamId);
+
+  for (const cup of defender.cupRack) {
+    far.appendChild(cupCircle(cup, farX, farY, FAR_SCALE, cup.isSunk ? 'sunk' : ''));
+  }
+  for (const cup of attacker.cupRack) {
+    near.appendChild(cupCircle(cup, nearX, nearY, NEAR_SCALE, cup.isSunk ? 'sunk' : ''));
+  }
+
+  far.appendChild(svgText(50, 6,
+    `${teamName(state, defender.id)} — ${remainingCups(defender).length} cups`, 'rack-label'));
+  near.appendChild(svgText(50, 128,
+    `${teamName(state, attacker.id)} (throwing) — ${remainingCups(attacker).length} cups`, 'rack-label'));
+}
+
+function cupCircle(cup, mapX, mapY, scale, extra) {
+  const c = document.createElementNS(SVG_NS, 'circle');
+  c.setAttribute('cx', mapX(cup.x).toFixed(2));
+  c.setAttribute('cy', mapY(cup.y).toFixed(2));
+  c.setAttribute('r', (CUP_R * scale).toFixed(2));
+  c.setAttribute('class', `cup ${extra}`.trim());
+  c.dataset.cupId = cup.id;
+  c.dataset.sunk = String(Boolean(cup.isSunk));
+  return c;
+}
+
+function svgText(x, y, text, cls) {
+  const t = document.createElementNS(SVG_NS, 'text');
+  t.setAttribute('x', String(x));
+  t.setAttribute('y', String(y));
+  t.setAttribute('class', cls);
+  t.setAttribute('text-anchor', 'middle');
+  t.textContent = text;
+  return t;
+}
+
+// ---------------------------------------------------------------------------
+// rendering — meters
+// ---------------------------------------------------------------------------
+
+function renderMeters() {
+  const aimLive = mode === 'aim';
+  const powerLive = mode === 'power';
+
+  $('aim-block').classList.toggle('live', aimLive);
+  $('power-block').classList.toggle('live', powerLive);
+  $('power-block').classList.toggle('waiting', mode === 'idle' || mode === 'aim');
+
+  // A locked aim stays visible while the power meter runs — you can see what you committed
+  // to. At rest both markers park at their start edge rather than vanishing.
+  const aimPos = aimLive ? meter.position : lockedAim;
+  placeMarker('aim-marker', aimPos ?? 0);
+  $('aim-value').textContent = aimPos === null || aimPos === undefined ? '—' : aimPos.toFixed(3);
+
+  const powerPos = powerLive ? meter.position : null;
+  placeMarker('power-marker', powerPos ?? 1);
+  $('power-value').textContent = powerPos === null ? '—' : powerPos.toFixed(3);
+}
+
+function placeMarker(id, position) {
+  const el = $(id);
+  if (position === null || position === undefined) {
+    el.classList.add('hidden');
+    return;
+  }
+  el.classList.remove('hidden');
+  el.style.left = `${(position * 100).toFixed(2)}%`;
+}
+
+// ---------------------------------------------------------------------------
+// the meter loop
+// ---------------------------------------------------------------------------
+
+function startMeter(which) {
+  mode = which;
+  meter = createMeter({
+    speed: which === 'aim' ? meterConfig.aimSpeed : meterConfig.powerSpeed,
+    // Alternate the starting edge so the two meters in a chain do not feel identical.
+    startPosition: which === 'aim' ? 0 : 1,
+    startDirection: which === 'aim' ? 1 : -1,
+  });
+  lastFrame = performance.now();
+  cancelAnimationFrame(rafHandle);
+  rafHandle = requestAnimationFrame(meterFrame);
+  renderMeters();
+  updateButton();
+}
+
+function meterFrame(nowMs) {
+  if (mode !== 'aim' && mode !== 'power') return;
+  const elapsed = Math.min((nowMs - lastFrame) / 1000, MAX_FRAME_SECONDS);
+  lastFrame = nowMs;
+  meter = advanceMeter(meter, elapsed);
+  renderMeters();
+  rafHandle = requestAnimationFrame(meterFrame);
+}
+
+function stopMeterLoop() {
+  cancelAnimationFrame(rafHandle);
+  rafHandle = null;
+}
+
+/** The one action button: start, lock aim, lock power. */
+function advance() {
+  if (mode === 'idle') {
+    startMeter('aim');
+    setStatus('Aim: lock it where you want the ball to go left-to-right.', 'live');
+    return;
+  }
+  if (mode === 'aim') {
+    meter = lockMeter(meter);
+    lockedAim = meter.value;
+    state = beginPower(state);
+    startMeter('power');
+    setStatus('Power: lock it for how far the ball carries.', 'live');
+    return;
+  }
+  if (mode === 'power') {
+    meter = lockMeter(meter);
+    stopMeterLoop();
+    resolveThrow(lockedAim, meter.value);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// throwing
+// ---------------------------------------------------------------------------
+
+function resolveThrow(aimValue, powerValue) {
+  const { newState, throwResult } = applyThrow(state, aimValue, powerValue, config);
+  state = newState;
+  mode = 'flying';
+  updateButton();
+  renderMeters();
+  renderRacks();
+
+  // Section 6: the throw has to visibly cash out as a place on the table, not a verdict.
+  animateThrow(throwResult, () => {
+    state = advanceAfterThrow(state);
+    lockedAim = null;
+    meter = null;
+
+    if (checkGameOver(state)) {
+      mode = 'over';
+      showResults();
+      return;
+    }
+    mode = 'idle';
+    renderAll();
+    updateButton();
+    setStatus(throwSummary(throwResult), throwResult.hitCupId ? 'hit' : 'miss');
+  });
+}
+
+function throwSummary(result) {
+  const who = getPlayer(state, result.throwerId).name;
+  const drifted = Math.abs(result.adjustedAim - result.lockedAim) > 1e-9
+    ? ` (drunk aim pulled it ${result.adjustedAim > result.lockedAim ? 'right' : 'left'})`
+    : '';
+  if (!result.hitCupId) return `${who} missed${drifted}. Press Throw for the next ball.`;
+  if (result.isSuddenDeath) {
+    return `${who} hit the sudden-death cup${drifted} — streak ${state.suddenDeathCurrentStreak}.`;
+  }
+  if (result.clearedRack) return `${who} cleared the rack${drifted}! Sudden death begins.`;
+  return `${who} sank it${drifted}. Press Throw for the next ball.`;
+}
+
+/**
+ * Arc the ball from the thrower to the landing point over ~0.7s, then reveal the outcome.
+ * A quadratic Bezier is enough — Section 6 asks for legibility, not physics.
+ */
+function animateThrow(result, done) {
+  const ball = $('ball');
+  const from = BALL_ORIGIN;
+  const to = { x: farX(result.target.x), y: farY(result.target.y) };
+  // Control point above the midpoint: the higher it is, the loftier the arc.
+  const control = { x: (from.x + to.x) / 2, y: Math.min(from.y, to.y) - 34 };
+
+  ball.classList.remove('hidden');
+  showLanding(to, result);
+
+  const start = performance.now();
+  const step = (nowMs) => {
+    const t = Math.min(1, (nowMs - start) / THROW_MS);
+    const inv = 1 - t;
+    const x = inv * inv * from.x + 2 * inv * t * control.x + t * t * to.x;
+    const y = inv * inv * from.y + 2 * inv * t * control.y + t * t * to.y;
+    ball.setAttribute('cx', x.toFixed(2));
+    ball.setAttribute('cy', y.toFixed(2));
+    // Fake height: the ball swells at the top of its arc.
+    ball.setAttribute('r', (2.1 + 1.5 * Math.sin(Math.PI * t)).toFixed(2));
+
+    if (t < 1) {
+      requestAnimationFrame(step);
+      return;
+    }
+    landBall(result, done);
+  };
+  requestAnimationFrame(step);
+}
+
+function showLanding(to, result) {
+  const landing = $('landing');
+  const ring = landing.querySelector('.landing-ring');
+  ring.setAttribute('cx', to.x.toFixed(2));
+  ring.setAttribute('cy', to.y.toFixed(2));
+  ring.setAttribute('r', (config.toleranceRadius * FAR_SCALE).toFixed(2));
+  landing.classList.remove('hidden');
+  landing.classList.toggle('is-hit', Boolean(result.hitCupId));
+}
+
+function landBall(result, done) {
+  const ball = $('ball');
+  if (result.hitCupId) {
+    const cup = document.querySelector(`#rack-far .cup[data-cup-id="${result.hitCupId}"]`);
+    if (cup) cup.classList.add('sinking');
+    ball.classList.add('dropping');
+  } else {
+    ball.classList.add('bouncing');
+  }
+
+  setTimeout(() => {
+    ball.classList.add('hidden');
+    ball.classList.remove('dropping', 'bouncing');
+    $('landing').classList.add('hidden');
+    done();
+  }, 380);
+}
+
+// ---------------------------------------------------------------------------
+// results
+// ---------------------------------------------------------------------------
+
+function showResults() {
+  stopMeterLoop();
+  $('result-text').textContent = resultLabel(state);
+  const rows = $('results-rows');
+  rows.innerHTML = '';
+  for (const team of state.teams) {
+    const tr = document.createElement('tr');
+    const isWinner = team.id === state.winnerTeamId;
+    if (isWinner) tr.classList.add('winner');
+    tr.dataset.teamId = team.id;
+    for (const text of [
+      teamName(state, team.id),
+      teamRoster(state, team.id),
+      String(remainingCups(team).length),
+      isWinner ? 'WINNER' : '',
+    ]) {
+      const td = document.createElement('td');
+      td.textContent = text;
+      tr.appendChild(td);
+    }
+    rows.appendChild(tr);
+  }
+  $('match-log').textContent = state.log.join('\n');
+  show('over');
+}
+
+function renderLog() {
+  // Newest last, like a running commentary; the box scrolls itself.
+  const el = $('throw-log');
+  el.textContent = state.log.slice(-12).join('\n');
+  el.scrollTop = el.scrollHeight;
+}
+
+function updateButton() {
+  const btn = $('lock');
+  btn.textContent =
+    mode === 'idle' ? 'Throw' :
+    mode === 'aim' ? 'Lock aim' :
+    mode === 'power' ? 'Lock power' : '…';
+  btn.disabled = mode === 'flying' || mode === 'over';
+}
+
+// ---------------------------------------------------------------------------
+// tuning form
+// ---------------------------------------------------------------------------
+
+function buildParams() {
+  const host = $('params');
+  host.innerHTML = '';
+  const add = (spec, get, set) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'param';
+
+    const label = document.createElement('label');
+    label.textContent = spec.label ?? spec.key;
+    label.htmlFor = `num-${spec.key}`;
+
+    const field = document.createElement('div');
+    field.className = 'field';
+
+    const range = document.createElement('input');
+    range.type = 'range';
+    range.id = `range-${spec.key}`;
+    Object.assign(range, { min: spec.min, max: spec.max, step: spec.step, value: get() });
+
+    const num = document.createElement('input');
+    num.type = 'number';
+    num.id = `num-${spec.key}`;
+    num.dataset.param = spec.key;
+    Object.assign(num, { min: spec.min, max: spec.max, step: spec.step, value: get() });
+
+    const sync = (value, mirror) => {
+      const v = Number(value);
+      if (!Number.isFinite(v)) return;
+      set(v);
+      mirror.value = String(v);
+    };
+    range.addEventListener('input', () => sync(range.value, num));
+    num.addEventListener('input', () => sync(num.value, range));
+
+    const note = document.createElement('span');
+    note.className = 'note';
+    note.textContent = spec.note;
+
+    field.append(range, num);
+    wrap.append(label, field, note);
+    host.appendChild(wrap);
+  };
+
+  for (const spec of PARAMS) {
+    add(spec, () => config[spec.key], (v) => { config = createConfig({ ...config, [spec.key]: v }); });
+  }
+  for (const spec of METER_PARAMS) {
+    add(spec, () => meterConfig[spec.key], (v) => { meterConfig = { ...meterConfig, [spec.key]: v }; });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// wiring
+// ---------------------------------------------------------------------------
+
+for (const btn of document.querySelectorAll('.choice')) {
+  btn.addEventListener('click', () => {
+    playerCount = Number(btn.dataset.count);
+    renderSetupRows();
+  });
+}
+$('start-game').addEventListener('click', startMatch);
+$('lock').addEventListener('click', advance);
+$('new-match').addEventListener('click', backToSetup);
+$('play-again').addEventListener('click', backToSetup);
+
+function backToSetup() {
+  stopMeterLoop();
+  state = null;
+  mode = 'idle';
+  meter = null;
+  lockedAim = null;
+  show('setup');
+  renderSetupRows();
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'Space') return;
+  if ($('screen-match').classList.contains('hidden')) return;
+  e.preventDefault();
+  if (mode !== 'flying' && mode !== 'over') advance();
+});
+
+// A backgrounded tab should not leave a meter sweeping against a stale clock.
+window.addEventListener('blur', () => { lastFrame = performance.now(); });
+
+renderSetupRows();
+buildParams();
+show('setup');
+
+// Test hook — lets the browser suite read authoritative state and drive throws without
+// racing the meters. No role in play.
+window.__bp = {
+  getState: () => state,
+  getConfig: () => config,
+  getMode: () => mode,
+  getMeter: () => meter,
+  setConfig: (patch) => { config = createConfig({ ...config, ...patch }); },
+  setMeterConfig: (patch) => { meterConfig = { ...meterConfig, ...patch }; },
+  // Lock both meters at chosen values and resolve, skipping the sweep entirely.
+  throwAt: (aim, power) => {
+    if (mode === 'flying' || mode === 'over') return false;
+    stopMeterLoop();
+    if (state.phase === 'AIM') state = beginPower(state);
+    lockedAim = aim;
+    resolveThrow(aim, power);
+    return true;
+  },
+  // Aim dead centre of a cup that is currently a legal target.
+  aimForCup: (cupId) => {
+    const cup = candidateCups(state).find((c) => c.id === cupId) ?? candidateCups(state)[0];
+    if (!cup) return null;
+    const { minX, maxX, minY, maxY } = rackExtent();
+    return {
+      aim: (cup.x - (minX - config.aimMargin)) / ((maxX + config.aimMargin) - (minX - config.aimMargin)),
+      power: (cup.y - (minY - config.powerMargin)) / ((maxY + config.powerMargin) - (minY - config.powerMargin)),
+    };
+  },
+  sceneFor: (aim, power) => ({
+    x: farX(aimToX(aim, config)),
+    y: farY(powerToY(power, config)),
+  }),
+};
+
+</script>
+  </body>
+</html>
