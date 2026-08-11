@@ -64,6 +64,18 @@ const rotationOf = (id) => page.evaluate((elId) => {
   return m ? Number(m[1]) : null;
 }, id);
 
+/**
+ * Lean and the rendered angle, read in one round trip. Sampling them separately lets the
+ * run advance in between, which makes the pair inconsistent and the linearity check flaky.
+ * A single evaluate cannot interleave with the render loop, so the two always agree.
+ */
+const leanAndTilt = () => page.evaluate(() => {
+  const t = document.getElementById('figure').getAttribute('transform') ?? '';
+  const m = /rotate\(\s*(-?[\d.]+)/.exec(t);
+  const s = window.__bal.getState();
+  return { lean: s.lean, isFallen: s.isFallen, deg: m ? Number(m[1]) : null };
+});
+
 try {
   await check('page loads and the marker starts centred', async () => {
     await page.goto(URL);
@@ -144,8 +156,8 @@ try {
     const threshold = (await config()).fallThreshold;
     const samples = [];
     for (let i = 0; i < 12; i++) {
-      const [s, deg] = [await state(), await rotationOf('figure')];
-      if (!s.isFallen) samples.push({ lean: s.lean, deg });
+      const s = await leanAndTilt();
+      if (!s.isFallen) samples.push({ lean: s.lean, deg: s.deg });
       await page.waitForTimeout(90);
     }
     ok(samples.length >= 6, `collected ${samples.length} standing samples`);
