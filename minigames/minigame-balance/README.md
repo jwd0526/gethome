@@ -12,7 +12,9 @@ src/ui.js              render loop, keyboard, tuning form
 build.js               inlines everything into one distributable HTML file
 tests/logic-tests.js   physics checks (node)
 tests/browser-tests.js end-to-end checks driving real Chromium input
+tests/capture-screenshots.js  regenerates screenshots/
 dist/balance.html      generated — the double-click build
+screenshots/           captured from the running app (npm run shots)
 ```
 
 ## Run
@@ -22,6 +24,7 @@ npm run serve       # http://127.0.0.1:8140/index.html
 npm test            # physics checks
 npm run ui          # end-to-end checks (starts its own server + Chromium)
 npm run build       # -> dist/balance.html, one self-contained file
+npm run shots       # recapture screenshots/ from the running app
 ```
 
 Set `BAL_PORT` if 8140 is taken. `npm run ui` needs `npx playwright install chromium` once.
