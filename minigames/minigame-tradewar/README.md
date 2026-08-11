@@ -13,8 +13,9 @@ build.js               inlines everything into one distributable HTML file
 tests/logic-tests.js   state-level checks (node)
 tests/browser-tests.js end-to-end checks driving real Chromium clicks
 tests/dist-smoke.js    proves the built single file plays over file://
+tests/capture-screenshots.js  regenerates screenshots/
 dist/trade-war.html    generated — the double-click build
-screenshots/           captured from the running app
+screenshots/           captured from the running app (npm run shots)
 ```
 
 ## Run
@@ -23,6 +24,7 @@ screenshots/           captured from the running app
 npm run serve                   # then open http://127.0.0.1:8137/index.html
 npm test                        # rules-layer checks (node, no browser)
 npm run ui                      # end-to-end checks (starts its own server + Chromium)
+npm run shots                   # recapture screenshots/ from the running app
 ```
 
 `npm run ui` needs `npx playwright install chromium` once. Set `TW_PORT` if 8137 is busy.

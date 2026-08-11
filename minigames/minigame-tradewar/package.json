@@ -6,6 +6,7 @@
   "scripts": {
     "test": "node tests/logic-tests.js",
     "ui": "node tests/browser-tests.js",
+    "shots": "node tests/capture-screenshots.js",
     "serve": "python3 -m http.server 8137",
     "build": "node build.js",
     "test:dist": "node build.js && node tests/dist-smoke.js"
