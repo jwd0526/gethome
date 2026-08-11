@@ -66,14 +66,103 @@ tr.winner td { background: #1f3d2c; }
 .timer { font-size: 1.1rem; }
 .timer.urgent { color: #e2725b; }
 
-.hand { display: flex; gap: 0.75rem; flex-wrap: wrap; }
-.row { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.25rem 0; }
+.row { display: flex; gap: 0.3rem; flex-wrap: wrap; margin: 0.25rem 0; align-items: flex-start; }
+
+/* ---------------- the table ----------------
+   Seats around a felt. #other-hands is display:contents so the three seat groups land
+   in this grid directly, which keeps `#other-hands .opponent` a valid handle on every
+   opponent seat wherever it is sitting. */
+
+.table {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.5fr) minmax(0, 0.85fr);
+  grid-template-areas:
+    "north  north  north"
+    "west   centre east"
+    "you    you    you";
+  gap: 0.6rem;
+  padding: 0.9rem;
+  margin: 0.75rem 0 1rem;
+  border: 1px solid #2e4a3b;
+  border-radius: 10px;
+  background:
+    radial-gradient(ellipse at 50% 42%, #1e3b2e 0%, #17251f 62%, #141a17 100%);
+}
+#other-hands { display: contents; }
+.seat-group { display: flex; gap: 0.6rem; min-width: 0; }
+.seat-group.north { grid-area: north; justify-content: center; }
+.seat-group.north .opponent { flex: 0 1 auto; min-width: 0; }
+.seat-group.west { grid-area: west; flex-direction: column; justify-content: center; }
+.seat-group.east { grid-area: east; flex-direction: column; justify-content: center; }
+
+.seat {
+  border: 1px solid #2c3b34;
+  border-radius: 7px;
+  padding: 0.45rem 0.55rem;
+  background: rgba(12, 18, 15, 0.55);
+  min-width: 0;
+}
+.seat.you { grid-area: you; }
+.seat .who { font-size: 0.85rem; margin-bottom: 0.25rem; }
+.seat .you-tag { color: #7b8794; font-size: 0.8rem; }
+/* The active player is the only one who can Force Trade — worth seeing at a glance. */
+.opponent[data-active='true'] { border-color: #6b5320; background: rgba(36, 31, 20, 0.6); }
+
+.centre {
+  grid-area: centre;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.75rem;
+}
+.pile { text-align: center; }
+.pile-stack { position: relative; height: 4.4rem; width: 3.2rem; margin: 0 auto; }
+.pile-stack .card-back { position: absolute; inset: 0; }
+/* Offset the lower cards so a stack reads as a stack. Stacking order is by explicit
+   positive z-index: negative values would sink them behind the felt. */
+.pile-stack .card-back:nth-child(1) { z-index: 3; }
+.pile-stack .card-back:nth-child(2) { transform: translate(4px, 4px); z-index: 2; }
+.pile-stack .card-back:nth-child(3) { transform: translate(8px, 8px); z-index: 1; }
+.pile-stack .card-back.discarded { opacity: 0.5; border-style: dashed; }
+.pile-label { color: #8b98a5; font-size: 0.7rem; margin-top: 0.3rem; letter-spacing: 0.03em; }
+.pile.empty .pile-stack { opacity: 0.25; }
+
+/* ---------------- your two zones ---------------- */
+
+#own-hand { display: flex; gap: 0.9rem; flex-wrap: wrap; align-items: flex-start; }
+.zone {
+  border-radius: 6px;
+  padding: 0.4rem 0.55rem 0.5rem;
+  border: 1px dashed #33443c;
+  min-width: 0;
+}
+.zone-live { border-style: solid; border-color: #35543f; background: rgba(20, 34, 26, 0.5); }
+.zone-locked { background: rgba(10, 14, 12, 0.45); }
+.zone-label { font-size: 0.72rem; color: #9fb4c7; letter-spacing: 0.05em; text-transform: uppercase; }
+.zone-note { color: #7b8794; text-transform: none; letter-spacing: 0; }
+.zone-cards { display: flex; gap: 0.45rem; flex-wrap: wrap; margin-top: 0.35rem; }
+.zone-empty { color: #6b7680; font-size: 0.78rem; padding: 0.9rem 0.4rem; }
+/* Banked cards are smaller: still legible, no longer competing with the live hand. */
+.zone-locked .card-face { width: 3.4rem; height: 4.7rem; }
+.zone-locked .card-face .pip { font-size: 1.6rem; }
+.zone-locked .card-face .face, .zone-locked .card-face .index-br { font-size: 0.7rem; }
+
+/* Narrow screens: the felt stops being a ring and becomes a column, opponents first. */
+@media (max-width: 720px) {
+  .table {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "north" "west" "east" "centre" "you";
+  }
+  .seat-group.west, .seat-group.east { flex-direction: row; flex-wrap: wrap; }
+  .centre { gap: 1.25rem; }
+}
 
 .card {
   border: 1px solid #4a5361;
   border-radius: 5px;
-  padding: 0.5rem 0.6rem;
-  min-width: 5.5rem;
+  padding: 0.4rem 0.45rem;
+  min-width: 4.6rem;
   background: #1c2026;
 }
 .card .pos { color: #7b8794; font-size: 0.7rem; }
@@ -81,7 +170,7 @@ tr.winner td { background: #1f3d2c; }
 .card.locked { opacity: 0.55; border-style: dashed; }
 .card .locked-tag { color: #d9a441; font-size: 0.7rem; letter-spacing: 0.05em; }
 .card .actions { display: flex; gap: 0.3rem; margin-top: 0.4rem; }
-.card .actions button { padding: 0.2rem 0.45rem; font-size: 0.8rem; }
+.card .actions button { padding: 0.15rem 0.3rem; font-size: 0.72rem; }
 
 /* ---------------- the card itself ---------------- */
 
@@ -134,9 +223,8 @@ tr.winner td { background: #1f3d2c; }
 .slot {
   border: 1px solid #4a5361;
   border-radius: 5px;
-  padding: 0.35rem;
+  padding: 0.25rem 0.3rem;
   background: #1c2026;
-  min-width: 2.5rem;
   text-align: center;
 }
 .card-back {
@@ -144,10 +232,16 @@ tr.winner td { background: #1f3d2c; }
   border: 2px solid #2f3f5c;
   background: repeating-linear-gradient(45deg, #35507d 0 4px, #24365a 4px 8px);
 }
-.slot .card-back { width: 2.4rem; height: 3.3rem; margin: 0 auto 0.2rem; }
-.slot-pos { font-size: 0.8rem; color: #9fb4c7; }
-.slot.locked { opacity: 0.55; border-style: dashed; }
-.slot.locked .card-back { filter: grayscale(0.7); }
+.slot .card-back { width: 1.9rem; height: 2.6rem; margin: 0 auto 0.15rem; }
+/* A 6-player hand is 6 slots wide in every seat; shave them so a seat still fits a row. */
+.table[data-players='6'] .slot { padding: 0.2rem 0.22rem; }
+.table[data-players='6'] .slot .card-back { width: 1.5rem; height: 2.05rem; }
+.table[data-players='6'] .slot-pos { font-size: 0.66rem; }
+.slot-pos { font-size: 0.72rem; color: #9fb4c7; }
+/* Set apart without moving: a locked slot drops a few pixels and greys out, so the bank
+   is visible at a glance while position 3 stays the third slot from the left. */
+.slot.locked { opacity: 0.55; border-style: dashed; transform: translateY(5px); }
+.slot.locked .card-back { filter: grayscale(0.75); }
 .slot-locked { color: #d9a441; font-size: 0.6rem; letter-spacing: 0.05em; }
 
 /* Handoff screen: face-down cards, and nothing but — the interstitial must not put a

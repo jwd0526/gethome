@@ -59,8 +59,40 @@
         <p id="turn-notice" class="notice hidden"></p>
         <p id="error" class="error hidden"></p>
 
-        <h3>Your hand</h3>
-        <div id="own-hand" class="hand"></div>
+        <!-- ================= THE TABLE =================
+             Seats around a felt: opponents on three sides, the piles in the middle, the
+             viewer at the bottom. Opponent seats are written into #other-hands (which is
+             display:contents, so the three seat groups sit in the grid directly).
+        -->
+        <div id="table" class="table">
+          <div id="other-hands">
+            <div id="seats-north" class="seat-group north"></div>
+            <div id="seats-west" class="seat-group west"></div>
+            <div id="seats-east" class="seat-group east"></div>
+          </div>
+
+          <div class="centre">
+            <div id="deck-pile" class="pile">
+              <div class="pile-stack">
+                <div class="card-back"></div>
+                <div class="card-back"></div>
+                <div class="card-back"></div>
+              </div>
+              <div class="pile-label">Deck <span id="deck-count">—</span></div>
+            </div>
+            <div id="discard-pile" class="pile">
+              <div class="pile-stack">
+                <div class="card-back discarded"></div>
+              </div>
+              <div class="pile-label">Discard <span id="discard-count">—</span></div>
+            </div>
+          </div>
+
+          <div class="seat you">
+            <div class="who"><span id="you-name"></span><span class="you-tag"> — your seat</span></div>
+            <div id="own-hand"></div>
+          </div>
+        </div>
 
         <div id="result-panel" class="panel result hidden">
           <p id="result-text"></p>
@@ -86,9 +118,6 @@
           <button id="confirm-trade" class="primary" disabled>Confirm Trade</button>
           <button id="reset-trade" class="ghost">Reset</button>
         </div>
-
-        <h3>Other players</h3>
-        <div id="other-hands"></div>
       </section>
 
       <!-- ============= ROUND SUMMARY ============= -->

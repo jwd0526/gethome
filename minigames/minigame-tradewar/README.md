@@ -4,8 +4,8 @@ Proof of concept for the card minigame specified in `minigame-tradewar.md`.
 Vanilla JS/HTML/CSS, no frameworks. Local pass-and-play on one device.
 
 ```
-index.html             markup for all five screens
-styles.css             readability styling + the card faces and backs
+index.html             markup for all five screens (turn screen is the table)
+styles.css             readability styling + the table, card faces, backs and tweens
 DESIGN.md              design decisions, reuse, and porting caveats
 src/game.js            rules/state layer — pure, no DOM, JSON-serializable state
 src/ui.js              rendering + input; never decides legality itself

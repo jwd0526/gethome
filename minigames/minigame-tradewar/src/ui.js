@@ -30,6 +30,10 @@ let tickHandle = null;
 
 const now = () => Date.now();
 
+// Seat groups around the felt, in the order opponents are dealt into them: the player to
+// your left goes west, the one who acts just before you goes east, everyone else north.
+const SEAT_GROUPS = ['north', 'west', 'east'];
+
 // ---------------------------------------------------------------------------
 // setup screen
 // ---------------------------------------------------------------------------
@@ -104,7 +108,10 @@ function show(name) {
 
 function clearTurnScreen() {
   $('own-hand').innerHTML = '';
-  $('other-hands').innerHTML = '';
+  for (const group of SEAT_GROUPS) $(`seats-${group}`).innerHTML = '';
+  $('you-name').textContent = '';
+  $('deck-count').textContent = '—';
+  $('discard-count').textContent = '—';
   $('turn-heading').textContent = '';
   $('turn-role').textContent = '';
   $('round-indicator').textContent = '';
@@ -270,6 +277,8 @@ function renderTurn() {
       `It is unlocked, so you can still act on it.`;
   }
 
+  $('you-name').textContent = me.name;
+  renderPiles(view);
   renderOwnHand(me, { changed: tradedOnMe ? { [tradedOnMe.giveCardId]: 'TRADED TO YOU' } : {} });
   renderOtherHands(view, viewerId);
 
@@ -284,6 +293,12 @@ function renderTurn() {
 }
 
 /**
+ * Your seat: live cards in one zone, locked ones banked in a second.
+ *
+ * Both zones stay inside #own-hand — a locked card is still yours, still on the table and
+ * still scored, so hiding it would be lying about the game state. Only its *reach*
+ * changes, which is what the split says.
+ *
  * `opts.interactive` false renders the hand read-only (the result beat).
  * `opts.changed` maps cardId -> badge text for the card that just changed.
  */
@@ -291,76 +306,136 @@ function renderOwnHand(me, opts = {}) {
   const { interactive = true, changed = {} } = opts;
   const container = $('own-hand');
   container.innerHTML = '';
-  for (const card of me.hand) {
-    const badge = changed[card.id];
-    const div = document.createElement('div');
-    div.className = `card${card.locked ? ' locked' : ''}${badge ? ' changed' : ''}`;
-    div.dataset.cardId = card.id;
-    div.dataset.position = String(card.position);
-    div.dataset.locked = String(card.locked);
-    if (badge) div.dataset.changed = 'true';
 
-    const pos = document.createElement('div');
-    pos.className = 'pos';
-    pos.textContent = `position ${card.position}`;
+  const live = me.hand.filter((c) => !c.locked);
+  const locked = me.hand.filter((c) => c.locked);
 
-    const val = document.createElement('div');
-    val.className = 'val';
-    val.textContent = `value ${card.value}`;
+  container.append(
+    buildZone('live', 'In play', `${live.length} card${live.length === 1 ? '' : 's'} you can still act on`,
+      live, { interactive, changed }),
+    buildZone('locked', 'Locked', 'final — cannot be replaced, traded away or unlocked',
+      locked, { interactive, changed })
+  );
+}
 
-    div.append(pos, buildCardFace(card.label), val);
+function buildZone(kind, title, note, cards, opts) {
+  const zone = document.createElement('div');
+  zone.className = `zone zone-${kind}`;
+  zone.dataset.zone = kind;
 
-    if (badge) {
-      const tag = document.createElement('div');
-      tag.className = 'change-tag';
-      tag.textContent = badge;
-      div.appendChild(tag);
-    }
+  const label = document.createElement('div');
+  label.className = 'zone-label';
+  label.append(title, Object.assign(document.createElement('span'), {
+    className: 'zone-note', textContent: ` — ${note}`,
+  }));
 
-    if (card.locked) {
-      // The change badge already says LOCKED where it applies — don't say it twice.
-      if (!badge) {
-        const tag = document.createElement('div');
-        tag.className = 'locked-tag';
-        tag.textContent = 'LOCKED';
-        div.appendChild(tag);
-      }
-    } else if (!interactive) {
-      const tag = document.createElement('div');
-      tag.className = 'val';
-      tag.textContent = 'unlocked';
-      div.appendChild(tag);
-    } else {
-      const actions = document.createElement('div');
-      actions.className = 'actions';
-
-      const lockBtn = document.createElement('button');
-      lockBtn.textContent = 'Lock';
-      lockBtn.dataset.action = 'lock';
-      lockBtn.dataset.cardId = card.id;
-      lockBtn.addEventListener('click', () => submit('LOCK', { cardId: card.id }));
-
-      const replaceBtn = document.createElement('button');
-      replaceBtn.textContent = 'Replace';
-      replaceBtn.dataset.action = 'replace';
-      replaceBtn.dataset.cardId = card.id;
-      replaceBtn.addEventListener('click', () => submit('REPLACE', { cardId: card.id }));
-
-      actions.append(lockBtn, replaceBtn);
-      div.appendChild(actions);
-    }
-    container.appendChild(div);
+  const row = document.createElement('div');
+  row.className = 'zone-cards';
+  if (cards.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'zone-empty';
+    empty.textContent = kind === 'locked' ? 'nothing locked yet' : 'no cards left to act on';
+    row.appendChild(empty);
   }
+  for (const card of cards) row.appendChild(buildOwnCard(card, opts));
+
+  zone.append(label, row);
+  return zone;
+}
+
+function buildOwnCard(card, opts = {}) {
+  const { interactive = true, changed = {} } = opts;
+  const badge = changed[card.id];
+
+  const div = document.createElement('div');
+  div.className = `card${card.locked ? ' locked' : ''}${badge ? ' changed' : ''}`;
+  div.dataset.cardId = card.id;
+  div.dataset.position = String(card.position);
+  div.dataset.locked = String(card.locked);
+  if (badge) div.dataset.changed = 'true';
+
+  const pos = document.createElement('div');
+  pos.className = 'pos';
+  pos.textContent = `position ${card.position}`;
+
+  const val = document.createElement('div');
+  val.className = 'val';
+  val.textContent = `value ${card.value}`;
+
+  div.append(pos, buildCardFace(card.label), val);
+
+  if (badge) {
+    const tag = document.createElement('div');
+    tag.className = 'change-tag';
+    tag.textContent = badge;
+    div.appendChild(tag);
+  }
+
+  if (card.locked) {
+    // The zone it sits in already says locked; the per-card tag is kept for the result
+    // beat, where the badge is what the player is being pointed at.
+    if (!badge) {
+      const tag = document.createElement('div');
+      tag.className = 'locked-tag';
+      tag.textContent = 'LOCKED';
+      div.appendChild(tag);
+    }
+  } else if (!interactive) {
+    const tag = document.createElement('div');
+    tag.className = 'val';
+    tag.textContent = 'unlocked';
+    div.appendChild(tag);
+  } else {
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+
+    const lockBtn = document.createElement('button');
+    lockBtn.textContent = 'Lock';
+    lockBtn.dataset.action = 'lock';
+    lockBtn.dataset.cardId = card.id;
+    lockBtn.addEventListener('click', () => submit('LOCK', { cardId: card.id }));
+
+    const replaceBtn = document.createElement('button');
+    replaceBtn.textContent = 'Replace';
+    replaceBtn.dataset.action = 'replace';
+    replaceBtn.dataset.cardId = card.id;
+    replaceBtn.addEventListener('click', () => submit('REPLACE', { cardId: card.id }));
+
+    actions.append(lockBtn, replaceBtn);
+    div.appendChild(actions);
+  }
+  return div;
+}
+
+/**
+ * Deal the opponents into the three seat groups, in seat order starting from the player
+ * to the viewer's left: first west, last east, the rest along the north edge. Works for
+ * 4 and 6 players without a per-count layout.
+ */
+function seatAssignment(opponentCount) {
+  if (opponentCount <= 1) return ['north'];
+  if (opponentCount === 2) return ['west', 'east'];
+  return ['west', ...Array(opponentCount - 2).fill('north'), 'east'];
 }
 
 function renderOtherHands(view, viewerId) {
-  const container = $('other-hands');
-  container.innerHTML = '';
-  for (const p of view.players) {
-    if (p.id === viewerId) continue;
+  for (const group of SEAT_GROUPS) $(`seats-${group}`).innerHTML = '';
+
+  // Rotate so the seat after the viewer comes first: the table keeps a consistent sense
+  // of who is on your left even though the device is passed around.
+  const order = view.players.map((p) => p.id);
+  const start = order.indexOf(viewerId);
+  const opponents = order
+    .slice(start + 1)
+    .concat(order.slice(0, start))
+    .map((id) => view.players.find((p) => p.id === id));
+  const groups = seatAssignment(opponents.length);
+
+  for (const [i, p] of opponents.entries()) {
     const wrap = document.createElement('div');
-    wrap.className = 'opponent';
+    wrap.className = 'opponent seat';
     wrap.dataset.playerId = p.id;
+    if (p.isActiveThisRound) wrap.dataset.active = 'true';
 
     const who = document.createElement('div');
     who.className = 'who';
@@ -380,6 +455,10 @@ function renderOtherHands(view, viewerId) {
 
     const row = document.createElement('div');
     row.className = 'row';
+    // Slots stay in position order even once some are locked. Force Trade is a blind pick
+    // *by position*, so reordering an opponent's cards to group the locked ones would
+    // scramble the only handle the trader has on them; they are set apart in place
+    // instead — greyed, dropped a few pixels, and labelled.
     for (const slot of p.hand) {
       // Face-down: position + locked state only. No id, no rank, no value.
       const s = document.createElement('div');
@@ -403,8 +482,17 @@ function renderOtherHands(view, viewerId) {
     }
 
     wrap.append(who, row);
-    container.appendChild(wrap);
+    $(`seats-${groups[i]}`).appendChild(wrap);
   }
+}
+
+function renderPiles(view) {
+  // Hand size scales with the player count, and so does how tight the seats are.
+  $('table').dataset.players = String(view.totalRounds);
+  $('deck-count').textContent = String(view.deckCount);
+  $('discard-count').textContent = String(view.discardCount);
+  $('deck-pile').classList.toggle('empty', view.deckCount === 0);
+  $('discard-pile').classList.toggle('empty', view.discardCount === 0);
 }
 
 function renderTradePanel(view, me) {
@@ -550,6 +638,8 @@ function renderResult() {
   $('trade-panel').classList.add('hidden');
   clearTradePanel();
 
+  $('you-name').textContent = me.name;
+  renderPiles(view);
   renderOwnHand(me, { interactive: false, changed: changedCards(event) });
   renderOtherHands(view, actorId);
 
