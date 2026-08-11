@@ -10,6 +10,7 @@ import {
   setInput,
   dangerLevel,
   leanFraction,
+  tiltFraction,
   formatTime,
   FIXED_STEP,
 } from './balance.js';
@@ -68,6 +69,21 @@ const MAX_FRAME_SECONDS = 0.25;
 
 // Keep in sync with .marker width in styles.css.
 const MARKER_WIDTH = 10;
+
+// Character rendering. The figure rotates about its feet, which sit at (120, 130) in the
+// SVG's viewBox — keep these in sync with the <g id="figure"> pivot in index.html.
+const FIGURE_PIVOT_X = 120;
+const FIGURE_PIVOT_Y = 130;
+// Tilt at the fall threshold. Chosen to look precarious but still standing: the topple to
+// FALLEN_DEGREES is what reads as losing.
+const MAX_TILT_DEGREES = 34;
+const FALLEN_DEGREES = 84;
+// Arms swing against the direction being held, so a correction is visible as a pose.
+const ARM_SWING_DEGREES = 16;
+const ARM_PIVOT_Y = 74;
+// Rotating about the feet alone leaves the toppled body half-buried in the ground line;
+// lifting it afterwards lands it on top of the ground instead.
+const FALLEN_LIFT = 14;
 
 // ---------------------------------------------------------------------------
 // tuning form
@@ -154,6 +170,7 @@ function startRun() {
 
   $('start').textContent = 'Restart';
   $('bar').classList.remove('fallen');
+  $('scene').classList.remove('fallen');
   setStatus('Balancing…', 'running');
   render();
 
@@ -166,6 +183,8 @@ function endRun() {
   cancelAnimationFrame(rafHandle);
   rafHandle = null;
   $('bar').classList.add('fallen');
+  // Added before the render below so the topple animates from the last standing pose.
+  $('scene').classList.add('fallen');
 
   const score = state.finalScore ?? state.elapsedTime;
   if (best === null || score > best) best = score;
@@ -207,17 +226,39 @@ function frame(nowMs) {
 // rendering
 // ---------------------------------------------------------------------------
 
+// Green at centre through amber to red at the threshold.
+function dangerColour(danger) {
+  return `hsl(${145 - 145 * danger} 60% ${52 - 8 * danger}%)`;
+}
+
+// The character is a pure function of tilt: one rotation about the feet, plus an arm
+// swing for the held direction. No physics here — tiltFraction does the only arithmetic.
+function renderFigure(tilt, danger) {
+  const degrees = state.isFallen
+    ? Math.sign(tilt || 1) * FALLEN_DEGREES
+    : tilt * MAX_TILT_DEGREES;
+  const spin = `rotate(${degrees.toFixed(2)} ${FIGURE_PIVOT_X} ${FIGURE_PIVOT_Y})`;
+  $('figure').setAttribute(
+    'transform',
+    state.isFallen ? `translate(0 ${-FALLEN_LIFT}) ${spin}` : spin
+  );
+  $('figure').style.color = dangerColour(danger);
+
+  const swing = state.isFallen ? 0 : -state.inputDirection * ARM_SWING_DEGREES;
+  $('arms').setAttribute('transform', `rotate(${swing} ${FIGURE_PIVOT_X} ${ARM_PIVOT_Y})`);
+}
+
 function render() {
   if (!state) return;
   const danger = dangerLevel(state, config);
+
+  renderFigure(tiltFraction(state, config), danger);
 
   const marker = $('marker');
   // Inset by the marker's own width so it stays fully inside the bar at both extremes
   // rather than being half-clipped by the overflow at lean = ±1.
   marker.style.left = `calc(${MARKER_WIDTH / 2}px + ${leanFraction(state, config)} * (100% - ${MARKER_WIDTH}px))`;
-  // Green at centre through amber to red at the threshold.
-  const hue = 145 - 145 * danger;
-  marker.style.backgroundColor = `hsl(${hue} 60% ${52 - 8 * danger}%)`;
+  marker.style.backgroundColor = dangerColour(danger);
 
   $('timer').textContent = formatTime(state.finalScore ?? state.elapsedTime);
   $('gravity').textContent = state.gravityCoefficient.toFixed(3);

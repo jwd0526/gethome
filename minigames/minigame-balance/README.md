@@ -4,8 +4,8 @@ Single-player balance/survival minigame from `minigame-balance.md`.
 Vanilla JS/HTML/CSS, no frameworks, no build step needed to run.
 
 ```
-index.html             playfield, tuning form, run log
-styles.css             readability-only styling (no art pass)
+index.html             playfield (figure + bar), tuning form, run log
+styles.css             readability styling + the balancing figure
 DESIGN.md              design decisions, reuse, and porting caveats
 src/balance.js         physics layer — pure, no DOM, JSON-serializable state
 src/ui.js              render loop, keyboard, tuning form
@@ -25,6 +25,9 @@ npm run build       # -> dist/balance.html, one self-contained file
 ```
 
 Set `BAL_PORT` if 8140 is taken. `npm run ui` needs `npx playwright install chromium` once.
+
+The copy in `minigame-demos/` at the repo root is refreshed from this build by
+`node scripts/sync-demos.mjs` (`--check` reports staleness without writing).
 
 ## Playing
 

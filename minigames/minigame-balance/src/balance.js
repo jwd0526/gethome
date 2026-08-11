@@ -153,10 +153,18 @@ export function dangerLevel(state, config) {
   return Math.min(1, Math.abs(state.lean) / config.fallThreshold);
 }
 
+/**
+ * Signed lean as a -1..1 fraction of the fall threshold: -1 fully left, 0 centred,
+ * +1 fully right. Drives the character's tilt.
+ */
+export function tiltFraction(state, config) {
+  const clamped = Math.max(-config.fallThreshold, Math.min(config.fallThreshold, state.lean));
+  return clamped / config.fallThreshold;
+}
+
 /** Marker position as a 0..1 fraction across the bar, 0.5 = centred. */
 export function leanFraction(state, config) {
-  const clamped = Math.max(-config.fallThreshold, Math.min(config.fallThreshold, state.lean));
-  return (clamped / config.fallThreshold + 1) / 2;
+  return (tiltFraction(state, config) + 1) / 2;
 }
 
 export function formatTime(seconds) {

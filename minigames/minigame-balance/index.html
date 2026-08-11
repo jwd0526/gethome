@@ -16,6 +16,34 @@
 
       <!-- ===================== PLAYFIELD ===================== -->
       <section id="playfield">
+        <!--
+          The character is a *readout*, not a second simulation: the whole figure is one
+          group rotated about its feet by tiltFraction(). Nothing here knows what lean is.
+        -->
+        <div class="scene-wrap">
+          <svg
+            id="scene" class="scene" viewBox="0 20 240 130"
+            preserveAspectRatio="xMidYMax meet"
+            role="img" aria-label="A figure balancing, leaning with your lean"
+          >
+            <!-- The ground runs well past the viewBox so it still spans the full width
+                 on a wide viewport, where "meet" scales the figure to the height. -->
+            <line id="ground" class="ground" x1="-600" y1="130" x2="840" y2="130" />
+            <line class="ground-centre" x1="120" y1="124" x2="120" y2="136" />
+
+            <g id="figure" class="figure" transform="rotate(0 120 130)">
+              <line class="limb leg" x1="120" y1="104" x2="108" y2="130" />
+              <line class="limb leg" x1="120" y1="104" x2="132" y2="130" />
+              <line class="limb torso" x1="120" y1="104" x2="120" y2="70" />
+              <g id="arms" class="arms" transform="rotate(0 120 74)">
+                <line class="limb arm" x1="120" y1="74" x2="88" y2="60" />
+                <line class="limb arm" x1="120" y1="74" x2="152" y2="60" />
+              </g>
+              <circle class="head" cx="120" cy="54" r="13" />
+            </g>
+          </svg>
+        </div>
+
         <div class="bar-wrap">
           <div id="bar" class="bar">
             <div class="edge left" title="fall threshold"></div>
