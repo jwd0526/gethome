@@ -109,6 +109,7 @@ function show(name) {
 function clearTurnScreen() {
   $('own-hand').innerHTML = '';
   for (const group of SEAT_GROUPS) $(`seats-${group}`).innerHTML = '';
+  $('fly-layer').innerHTML = '';
   $('you-name').textContent = '';
   $('deck-count').textContent = '—';
   $('discard-count').textContent = '—';
@@ -577,6 +578,120 @@ function bumpTimer() {
 }
 
 // ---------------------------------------------------------------------------
+// cards in flight
+//
+// Decorative only, and deliberately so: the action has already resolved and the real
+// cards are already in their final places by the time anything moves. A ghost card is
+// drawn over the table and tweened from where the card was to where it now is, so a
+// player can see *that* a card came off the deck or went to a neighbour. Nothing waits
+// for it — clicking straight through is always safe.
+// ---------------------------------------------------------------------------
+
+const FLY_MS = 460;
+const FLY_STAGGER_MS = 130;
+
+const prefersReducedMotion = () =>
+  window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+
+/** Geometry relative to the fly layer, so ghosts ignore page scroll. */
+function rectOf(el) {
+  if (!el) return null;
+  const layer = $('fly-layer').getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  if (r.width === 0 && r.height === 0) return null;
+  return { x: r.left - layer.left, y: r.top - layer.top, w: r.width, h: r.height };
+}
+
+/** Where every card, seat and pile is right now. Taken before *and* after a resolution. */
+function captureTable() {
+  const cards = new Map();
+  for (const el of document.querySelectorAll('#own-hand .card')) {
+    cards.set(el.dataset.cardId, rectOf(el.querySelector('.card-face')));
+  }
+  const seats = new Map();
+  for (const el of document.querySelectorAll('#other-hands .opponent')) {
+    seats.set(el.dataset.playerId, {
+      seat: rectOf(el),
+      slots: [...el.querySelectorAll('.slot')].map((s) => rectOf(s.querySelector('.card-back'))),
+    });
+  }
+  return { cards, seats, deck: rectOf($('deck-pile')), discard: rectOf($('discard-pile')) };
+}
+
+/**
+ * Tween one ghost card from `from` to `to`. `label` draws a face; omit it for a back.
+ * Missing endpoints (an off-screen seat, a pile that was never rendered) are skipped
+ * rather than guessed at.
+ */
+function fly({ from, to, label = null, delay = 0, flip = false }) {
+  if (!from || !to) return;
+
+  const ghost = document.createElement('div');
+  ghost.className = 'fly';
+  ghost.style.left = `${from.x}px`;
+  ghost.style.top = `${from.y}px`;
+  ghost.style.width = `${from.w}px`;
+  ghost.style.height = `${from.h}px`;
+  ghost.style.transitionDuration = `${FLY_MS}ms`;
+  ghost.style.transitionDelay = `${delay}ms`;
+  ghost.appendChild(label ? buildCardFace(label) : buildCardBack());
+  if (flip) ghost.classList.add('flipping');
+  $('fly-layer').appendChild(ghost);
+
+  // Two frames: the first commits the start geometry, the second starts the tween.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    ghost.style.transform =
+      `translate(${to.x - from.x}px, ${to.y - from.y}px) scale(${to.w / from.w}, ${to.h / from.h})`;
+    ghost.style.opacity = '1';
+  }));
+
+  setTimeout(() => ghost.remove(), FLY_MS + delay + 80);
+}
+
+/** Replay the event that just resolved as movement across the table. */
+function animateResolution(event, before) {
+  if (!event || !before || prefersReducedMotion()) return;
+  const after = captureTable();
+
+  switch (event.type) {
+    case 'LOCK':
+      // Out of the live zone and into the bank.
+      fly({ from: before.cards.get(event.cardId), to: after.cards.get(event.cardId),
+        label: event.label });
+      break;
+
+    case 'REPLACE':
+      // The old card goes to the discard; the new one comes off the deck, face down
+      // until it lands.
+      fly({ from: before.cards.get(event.oldCardId), to: after.discard, label: event.oldLabel });
+      fly({ from: after.deck, to: after.cards.get(event.newCardId), label: event.newLabel,
+        delay: FLY_STAGGER_MS, flip: true });
+      break;
+
+    case 'FORCE_TRADE': {
+      const targetBefore = before.seats.get(event.targetPlayerId);
+      const targetAfter = after.seats.get(event.targetPlayerId);
+      const takeIndex = event.takePosition - 1;
+      fly({
+        from: before.cards.get(event.giveCardId),
+        to: targetAfter?.slots[takeIndex] ?? targetAfter?.seat,
+        label: event.giveLabel,
+      });
+      fly({
+        from: targetBefore?.slots[takeIndex] ?? targetBefore?.seat,
+        to: after.cards.get(event.takeCardId),
+        label: event.takeLabel,
+        delay: FLY_STAGGER_MS,
+        flip: true,
+      });
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // submitting
 // ---------------------------------------------------------------------------
 
@@ -594,13 +709,16 @@ function clearError() {
 function submit(actionType, payload) {
   clearError();
   const playerId = awaitingPlayerId(state);
+  // Snapshot the table while the pre-action layout is still on screen; the flight
+  // animation tweens from here to wherever the cards end up.
+  const before = captureTable();
   const result = applyAction(state, { playerId, actionType, payload }, now());
   if (!result.success) {
     showError(result.error);
     return false;
   }
   state = result.newState;
-  afterSubmission();
+  afterSubmission(before);
   return true;
 }
 
@@ -614,12 +732,13 @@ function confirmTrade() {
 
 // The acting player sees their own card lock / flip / swap resolve before the device
 // moves on. Nothing advances until they acknowledge it.
-function afterSubmission() {
+function afterSubmission(before = null) {
   stopTick();
   clearTrade();
   clearError();
   show('result');
   renderResult();
+  animateResolution(state.lastEvent, before);
 }
 
 function renderResult() {
@@ -704,10 +823,11 @@ function startTick() {
     if (screen !== 'turn' || state.phase !== 'AWAITING_ACTIONS') return;
     renderTimer();
     if (timeRemaining(state, now()) === 0) {
+      const before = captureTable();
       const result = resolveTimeout(state, now());
       if (result.success) {
         state = result.newState;
-        afterSubmission();
+        afterSubmission(before);
       }
     }
   }, 200);
